@@ -8,7 +8,9 @@
 #include <netinet/ip_icmp.h>
 
 //! TODO
-// add dns_lookup and reverse_dns_lookup
+// add dns_lookup
+// add -c -? -v
+// find a way to know if i need to do a dns lookup or not.
 
 //! change return type etc
 int check_argv(int argc, char *argv[])
@@ -18,26 +20,35 @@ int check_argv(int argc, char *argv[])
     return 1;
 }
 
+#include <time.h>
+
 void send_ping(int sockfd) {
-    struct sockaddr_in dest_addr;
-    char payload[100];
-    payload[99] = '\0';
-    struct icmp *icmp = struct icmp *(payload);
+    struct sockaddr_in dest_addr = {0};
+    //! remove this payload, back to icmp alone
+    char payload[28] = {0};
+    // payload[99] = '\0';
+    struct icmp *icmp = (struct icmp *)(&payload);
 
     icmp->icmp_type = ICMP_ECHO;
-    icmp->icmp_code = 0;
-    icmp->icmp_id = 123;
-    icmp->icmp_seq = 1;
+    icmp->icmp_code = htons(0);
+    icmp->icmp_id = htons(123);
+    //! seq is wrong order for some reason its 01 00 instead of 00 01 bytes
+    icmp->icmp_seq = htons(1);
 
     printf("%ld\n", sizeof(icmp));
 
     // Set destination address
-    memset(&dest_addr, 0, sizeof(dest_addr));
+    // memset(&dest_addr, 0, sizeof(dest_addr));
     dest_addr.sin_family = AF_INET;
     dest_addr.sin_port = htons(0);;  // Not used for ICMP
     // htons(PORT_NO);
     dest_addr.sin_addr.s_addr = inet_addr("8.8.8.8");
-    icmp->icmp_dun.id_ts.its_otime = 12345678;
+    time_t seconds_since_epoch = time(NULL);  // time() returns the current time as time_t
+    icmp->icmp_otime = (uint32_t)seconds_since_epoch;
+    printf("Seconds since the Epoch: %ld\n", (long) seconds_since_epoch);
+    // icmp->icmp_rtime = 1; //? useless
+    //! add here real millis and we good with time
+    icmp->icmp_ttime = 631043;
 
     // Send payload (kernel adds ICMP header)
     ssize_t bytes_sent = sendto(sockfd, payload, sizeof(payload), 0,
@@ -57,7 +68,7 @@ void send_ping(int sockfd) {
     //                     sizeof(recv_buf), 0,
     //                     (struct sockaddr *)&dest_addr,
     //                     (socklen_t *)&dest_addr)) < 0)
-    if ( (bytes_recv = recv(sockfd, recv_buf,sizeof(recv_buf), 0)) < 0)
+    if ( (bytes_recv = recv(sockfd, recv_buf, sizeof(recv_buf), 0)) < 0)
     {
         perror("recvfrom() error");
 
@@ -66,8 +77,13 @@ void send_ping(int sockfd) {
 
     struct icmp *rec_icmp = (struct icmp *) &recv_buf;
     printf("%d %d %d\n", rec_icmp->icmp_dun.id_ts.its_otime, rec_icmp->icmp_dun.id_ts.its_rtime, rec_icmp->icmp_dun.id_ts.its_ttime);
+
+    //! now parse info of the icmp packet
     close(sockfd);
 }
+
+#include <arpa/inet.h>
+#include <netdb.h>
 
 int main(int argc, char *argv[])
 {
@@ -91,6 +107,30 @@ int main(int argc, char *argv[])
     } else {
         printf("\nSocket set to TTL...\n");
     }
+
+    /*
+    The inet_addr() function converts the Internet host address cp from IPv4 numbers-and-dots notation into binary data in network byte order.
+    If the input is invalid, INADDR_NONE (usually -1) is returned. Use of this function is problematic because -1 is a valid address (255.255.255.255).
+    Avoid its use in favor of inet_aton(), inet_pton(3), or getaddrinfo(3) which provide a cleaner way to indicate error return. 
+    */
+
+    //? do i use this? i shouldnt be doing a dns lookup for an ip!!! so nope
+    struct addrinfo hints; // Hints or "filters" for getaddrinfo()
+    struct addrinfo *res;
+
+    memset(&hints, 0, sizeof hints); // Initialize the structure
+    hints.ai_family = AF_UNSPEC; // IPv4 or IPv6
+    hints.ai_socktype = SOCK_STREAM; // TCP
+
+    // Get the associated IP address(es)
+    int status; // Return value of getaddrinfo()
+    status = getaddrinfo(argv[1], 0, &hints, &res);
+        if (status != 0) { // error !
+        fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(status));
+        return (2);
+    }
+
+    printf("IP adresses for %s\n", argv[1]);
     //? timeout bonus?
     // setsockopt(ping_sockfd, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tv_out, sizeof tv_out);
     send_ping(sockfd);
