@@ -24,10 +24,10 @@ void send_ping(int sockfd) {
     payload[99] = '\0';
     struct icmp *icmp = struct icmp *(payload);
 
-    icmp.icmp_type = ICMP_ECHO;
-    icmp.icmp_code = 0;
-    icmp.icmp_id = 123;
-    icmp.icmp_seq = 1;
+    icmp->icmp_type = ICMP_ECHO;
+    icmp->icmp_code = 0;
+    icmp->icmp_id = 123;
+    icmp->icmp_seq = 1;
 
     printf("%ld\n", sizeof(icmp));
 
@@ -37,10 +37,10 @@ void send_ping(int sockfd) {
     dest_addr.sin_port = htons(0);;  // Not used for ICMP
     // htons(PORT_NO);
     dest_addr.sin_addr.s_addr = inet_addr("8.8.8.8");
-    icmp.icmp_dun.id_ts.its_otime = 12345678;
+    icmp->icmp_dun.id_ts.its_otime = 12345678;
 
     // Send payload (kernel adds ICMP header)
-    ssize_t bytes_sent = sendto(sockfd, &icmp, sizeof(icmp), 0,
+    ssize_t bytes_sent = sendto(sockfd, payload, sizeof(payload), 0,
                                 (struct sockaddr*)&dest_addr, sizeof(dest_addr));
     if (bytes_sent < 0) {
         perror("sendto failed");
