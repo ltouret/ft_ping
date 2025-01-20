@@ -7,31 +7,38 @@
 #include <string.h>
 #include <netinet/ip_icmp.h>
 // #include <netinet/ip.h> //?
+// #include <netdb.h> //?
+#include <signal.h>
+#include <time.h>
+
 
 //! TODO
-// make struct with all the data, int sockfd, const char *dest, icmp(?), the argv and what else?
+// // add control + c signal catch
 // add argv parsing
     // add argv -? -v and bonus -ttl -c -i for intervals.
     // Maybe add -W (SO_RCVTIMEO) its the timeout time in recvmsg, -w is the max time ping before exiting, or if -c is done - no idea how to implement that
+    // if -W 2 ping will wait 2 seconds if the packet doesnt arrive back before sending the next interval (-c or 1 second if no option)
+    // recv from socket with timeout? //! for now if we dont receive the info it just stays locked there in the recv line -> ping waits 10 seconds then says packet lost? ineutils says it waits forever... need to check
+
 // find a way to know if i need to do a dns lookup or not. add dns_lookup -> maybe parse if ip is 255.255.255.255 (char.char.char.char)
 // find a way to simulate errors and try them with ./ping ping and ft_ping
 // // icmp->icmp_ttime = 631043; //! add real time here
 // add header file
+    // make struct with all the data, int sockfd, const char *dest, icmp(?), the argv and what else?
     // add icmp struct int the header to make it work with c99.
     // make my own typedef with icmp + padding char[36] -> with data? or use icmphdr thats 8 bytes bc i dont really use much of the 28 of icmp  
     // easter egg in data padding of 64 bytes?
 // // calculate time between sendto and recvfrom and print it
-// print after each ping in the correct format (check if -v format changes)
-    // add math of statistics --> 2 packets transmitted, 2 packets received, 0% packet loss - round-trip min/avg/max/stddev = 2.244/3.556/4.867/1.312 ms
 // // retrieve ttl from ip packet, how??
-// recv from socket with timeout? //! for now if we dont receive the info it just stays locked there in the recv line -> ping waits 10 seconds then says packet lost? ineutils says it waits forever... need to check
-// the time in the statistics is updated only after the first packet is sent, so if we do just one its 0, idk yet what it means but my time is wrong then -> tiempo total saltandonse el primer ping de cada intervalo, enotnces si -c 4 -i 0.5 = 1500~ ms
-//! ping 3232235777 should work for now doesnt --> output -v PING 3232235777 (192.168.1.1): 56 data bytes
+//! ping 3232235777 should work for now doesnt --> output -v PING 3232235777 (192.168.1.1): 56 data bytes (add the ip)
 //! for now if ping 127.0.0.1 does work i dont receive the same message i sent. check later
+// uint16_t seq = 0; //? for ./ping work froms 0 check in real debian - local machine starts from 1...
 
-//! format of ping ineutils 2.0
+//! format of ping ineutils 2.0 -> only diff is id 0x81e7 = 33255
 //! missing the dns lookup in case of domain
-// ./ping -v 3232235777                                                                                                                                                                                                                                                                                                01:25:34
+// print after each ping in the correct format (check if -v format changes)
+// add math of statistics --> 2 packets transmitted, 2 packets received, 0% packet loss - round-trip min/avg/max/stddev = 2.244/3.556/4.867/1.312 ms
+// ./ping -v 3232235777
 /*
     PING 3232235777 (192.168.1.1): 56 data bytes, id 0x81e7 = 33255
     64 bytes from 192.168.1.1: icmp_seq=0 ttl=255 time=4.263 ms
@@ -40,7 +47,7 @@
     2 packets transmitted, 2 packets received, 0% packet loss
     round-trip min/avg/max/stddev = 4.263/6.375/8.486/2.112 ms
 */
-// ./ping 3232235777                                                                                                                                                                                                                                                                                                   01:25:36
+// ./ping 3232235777
 /*
     PING 3232235777 (192.168.1.1): 56 data bytes
     64 bytes from 192.168.1.1: icmp_seq=0 ttl=2 time=4.867 ms
@@ -50,15 +57,8 @@
     round-trip min/avg/max/stddev = 2.244/3.556/4.867/1.312 ms
 */
 
-//! change return type etc
-int check_argv(int argc, char *argv[])
-{
-    (void) argc;
-    (void) argv;
-    return 1;
-}
+int stop = 1;
 
-#include <time.h>
 
 void send_ping(int sockfd, const char *dest) {
     struct sockaddr_in dest_addr = {0};
@@ -66,7 +66,7 @@ void send_ping(int sockfd, const char *dest) {
     dest_addr.sin_family = AF_INET;
     dest_addr.sin_port = htons(0);  // Not used for ICMP can erase, and is already init to 0
 
-    // Set destination address
+    // Set destination address -> check domain
     dest_addr.sin_addr.s_addr = inet_addr(dest);
 
     //? easter egg with data
@@ -74,7 +74,11 @@ void send_ping(int sockfd, const char *dest) {
     char payload[64] = {0};
     struct icmp *icmp = (struct icmp *)(&payload);
     // memset(&payload, 0, sizeof(struct icmp)); //! needed if not payload {0}
-    uint16_t seq = 1;
+    uint16_t seq = 0; //? for ./ping work froms 0 check in real debian
+
+    // ! stats - var to track lost packets -> add counter for total packets and for -c, reset seq to 0 after max uint16_t 65k
+    uint16_t lost_packets = 0;
+    (void) lost_packets;
     uint8_t ttl;
 
     icmp->icmp_type = ICMP_ECHO;
@@ -84,10 +88,10 @@ void send_ping(int sockfd, const char *dest) {
     printf("id = %x\n", icmp->icmp_id); //! -v id 0x4242 = 16962
 
     struct timespec ts, start, end; //? move this later
-    //! while 1 or if -c --> i < c or -w close when time is over
-    while (1) {
+    //! while stop = 1 or if -c --> i < c or -w close when time is over
+    while (stop) {
         //! seq is wrong order for some reason its 01 00 instead of 00 01 bytes
-        icmp->icmp_seq = htons(seq);
+        icmp->icmp_seq = htons(seq++);
 
         clock_gettime(CLOCK_REALTIME, &ts);
         uint32_t seconds_since_epoch = (uint32_t)ts.tv_sec;
@@ -154,33 +158,50 @@ void send_ping(int sockfd, const char *dest) {
         //? get icmp data in case of error (code 8, type with error).
         struct icmp *rec_icmp = (struct icmp *) &buffer;
         printf("type %d code %d millis %f ms -- %d %d %d\n", rec_icmp->icmp_type, rec_icmp->icmp_code, elapsed_time, rec_icmp->icmp_dun.id_ts.its_otime, rec_icmp->icmp_dun.id_ts.its_rtime, rec_icmp->icmp_dun.id_ts.its_ttime);
-        // usleep(1000000); //? here can change to add bonus of -i and -w
 
 
         printf("64 bytes from %s: icmp_seq=%d ttl=%u time=%.3f ms\n", dest, seq, ttl, elapsed_time);
-        seq++;
-
-        break; //! remove this later
+        usleep(1000000); //? here can change to add bonus of -i and -w
     }
 
-    //! print stats here if control c or -c
+    //! print stats here if control c or -c or -w
     close(sockfd);
 }
 
-#include <arpa/inet.h>
-#include <netdb.h>
+
+void sigint_handler(int signal)
+{
+    if (signal == SIGINT) {
+        stop = 0;
+    }
+}
+
+void set_signal_action(void)
+{
+    struct sigaction act = {0}; 
+    act.sa_handler = &sigint_handler;
+    sigaction(SIGINT, &act, NULL);
+}
+
+//! change return type etc
+int check_argv(int argc, char *argv[])
+{
+    (void) argc;
+    (void) argv;
+    return 1;
+}
 
 int main(int argc, char *argv[])
 {
-    //! argv into its own function
+    //! argv into its own function, check if argv are correct!
     check_argv(argc, argv);
+    set_signal_action();
 
     //? change this into its own function, like socket_init
     int sockfd;
     int ttl_val = 64;
     sockfd = socket(AF_INET, SOCK_DGRAM, IPPROTO_ICMP);
-    // sockfd = socket(AF_INET, SOCK_RAW, IPPROTO_ICMP);
-    if (sockfd < 0) {// #include <arpa/inet.h>
+    if (sockfd < 0) {
 
         printf("\nSocket file descriptor not received!\n");
         return 0;
@@ -223,7 +244,7 @@ int main(int argc, char *argv[])
     //     return (2);
     // }
 
-    // printf("IP adresses for %s\n", argv[1]);
+    printf("IP adresses for %s\n", argv[1]);
     send_ping(sockfd, argv[1]);
     return 0;
 }
