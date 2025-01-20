@@ -10,9 +10,10 @@
 // #include <netdb.h> //?
 #include <signal.h>
 #include <time.h>
-
+#include <float.h>
 
 //! TODO
+// clean all, cut into smaller functions
 // // add control + c signal catch
 // add argv parsing
     // add argv -? -v and bonus -ttl -c -i for intervals.
@@ -20,7 +21,7 @@
     // if -W 2 ping will wait 2 seconds if the packet doesnt arrive back before sending the next interval (-c or 1 second if no option)
     // recv from socket with timeout? //! for now if we dont receive the info it just stays locked there in the recv line -> ping waits 10 seconds then says packet lost? ineutils says it waits forever... need to check
 
-// find a way to know if i need to do a dns lookup or not. add dns_lookup -> maybe parse if ip is 255.255.255.255 (char.char.char.char)
+// // find a way to know if i need to do a dns lookup or not. add dns_lookup -> maybe parse if ip is 255.255.255.255 (char.char.char.char)
 // find a way to simulate errors and try them with ./ping ping and ft_ping
 // // icmp->icmp_ttime = 631043; //! add real time here
 // add header file
@@ -56,15 +57,20 @@
     2 packets transmitted, 2 packets received, 0% packet loss
     round-trip min/avg/max/stddev = 2.244/3.556/4.867/1.312 ms
 */
+// ./ping -v 192.168.1.99 //! bad address -> stats no round-trip min/avg etc
+/*
+    PING 192.168.1.99 (192.168.1.99): 56 data bytes, id 0x857d = 34173
+    ^C--- 192.168.1.99 ping statistics ---
+    5 packets transmitted, 0 packets received, 100% packet loss
+*/
 
-int stop = 1;
-
+int stop = 1; // char for the lulz?
 
 void send_ping(int sockfd, const char *dest) {
     struct sockaddr_in dest_addr = {0};
     // memset(&dest_addr, 0, sizeof(dest_addr));
     dest_addr.sin_family = AF_INET;
-    dest_addr.sin_port = htons(0);  // Not used for ICMP can erase, and is already init to 0
+    // dest_addr.sin_port = htons(0);  // Not used for ICMP can erase, and is already init to 0
 
     // Set destination address -> check domain
     dest_addr.sin_addr.s_addr = inet_addr(dest);
@@ -77,67 +83,81 @@ void send_ping(int sockfd, const char *dest) {
     uint16_t seq = 0; //? for ./ping work froms 0 check in real debian
 
     // ! stats - var to track lost packets -> add counter for total packets and for -c, reset seq to 0 after max uint16_t 65k
-    uint16_t lost_packets = 0;
-    (void) lost_packets;
-    uint8_t ttl;
+    //? maybe add all of this in struct stats?
+    int packets_sent = 0, packets_lost = 0;
+    float min  = FLT_MAX, avg = 0.0, max = 0.0, stddev = 0.0; //? maybe avg needs to be double
+    //! remove later
+    // (void) packets_sent;
+    // (void) packets_lost;
+    // (void) min;
+    // (void) max;
+    // (void) avg;
+    (void) stddev;
+
+    uint8_t ttl; //? is there a way i can remove this? or add to stats struct?
 
     icmp->icmp_type = ICMP_ECHO;
     icmp->icmp_code = 0;
     icmp->icmp_id = htons(16962); // done by the kernel so idc, adding for the !lulz //! 4242
+    // icmp->icmp_seq = htons(++seq); //? change this
 
-    printf("id = %x\n", icmp->icmp_id); //! -v id 0x4242 = 16962
+    // printf("id = %x\n", icmp->icmp_id); //! -v id 0x4242 = 16962
 
-    struct timespec ts, start, end; //? move this later
+    //! all the msg shit doesnt need to be in the loop, only created once!
+    char buffer[64] = {0};
+    char control[64] = {0};
+    struct iovec iov = {
+        .iov_base = buffer,
+        .iov_len = sizeof(buffer)
+    };
+    struct msghdr msg = {
+        .msg_name = NULL,
+        .msg_namelen = 0,
+        .msg_iov = &iov,
+        .msg_iovlen = 1,
+        .msg_control = control,
+        .msg_controllen = sizeof(control),
+    };
+
+    struct timespec start, end; //? move this later
+
     //! while stop = 1 or if -c --> i < c or -w close when time is over
     while (stop) {
         //! seq is wrong order for some reason its 01 00 instead of 00 01 bytes
-        icmp->icmp_seq = htons(seq++);
+        icmp->icmp_seq = htons(++seq); //? change this
 
-        clock_gettime(CLOCK_REALTIME, &ts);
-        uint32_t seconds_since_epoch = (uint32_t)ts.tv_sec;
-        uint32_t microseconds = ((uint32_t)ts.tv_nsec) / 1000;
+        // clock_gettime(CLOCK_REALTIME, &ts);
+        clock_gettime(CLOCK_REALTIME, &start);
 
-        printf("Seconds since the Epoch: %u, microseconds %u\n", seconds_since_epoch, microseconds);
-        icmp->icmp_otime = seconds_since_epoch;
-        icmp->icmp_ttime = microseconds;
+        icmp->icmp_otime = (uint32_t)start.tv_sec;
+        icmp->icmp_ttime = ((uint32_t)start.tv_nsec) / 1000;
 
         clock_gettime(CLOCK_MONOTONIC, &start);
         ssize_t bytes_sent = sendto(sockfd, payload, sizeof(payload), 0,
                                 (struct sockaddr*)&dest_addr, sizeof(dest_addr));
+        //? packets_lost++? what do i do here? just quit bc its broken? -> for now if it breaks its an infinite loop, maybe quit
         if (bytes_sent < 0) {
-            perror("sendto failed");
-            close(sockfd);
-            exit(EXIT_FAILURE);
+            // perror("sendto failed");
+            packets_lost++;
+            continue;
+            // close(sockfd);
+            // exit(EXIT_FAILURE);
         }
 
-        printf("ICMP packet sent: Seq: %u, Timestamp: %u.%u\n", ntohs(icmp->icmp_seq), seconds_since_epoch, microseconds);
-
-        char buffer[64] = {0};
-        char control[64] = {0};
-
-        struct iovec iov = {
-            .iov_base = buffer,
-            .iov_len = sizeof(buffer)
-        };
-
-        struct msghdr msg = {
-            .msg_name = NULL,
-            .msg_namelen = 0,
-            .msg_iov = &iov,
-            .msg_iovlen = 1,
-            .msg_control = control,
-            .msg_controllen = sizeof(control),
-        };
+        // printf("ICMP packet sent: Seq: %u, Timestamp: %u.%u\n", ntohs(icmp->icmp_seq), icmp->icmp_otime, icmp->icmp_ttime);
 
         ssize_t bytes_received = recvmsg(sockfd, &msg, 0); //? MSG_DONTWAIT -> no timeout?
         clock_gettime(CLOCK_MONOTONIC, &end);
+        //? if timeout and i dont receive the bytes the program exists it should just print Host unreachable, packets_lost++ and what else?
         if (bytes_received < 0) {
-            perror("recvmsg");
-            close(sockfd);
-            exit(EXIT_FAILURE);
+            // perror("recvmsg"); //? do i remove this?
+            packets_lost++;
+            continue;
+            // close(sockfd);
+            // exit(EXIT_FAILURE);
         }
 
-        printf("Waiting for incoming ICMP packets... received size %ld\n", bytes_received);
+        // printf("Waiting for incoming ICMP packets... received size %ld\n", bytes_received);
         // printf("ICMP reply received: Seq=%u\n", ntohs(icmp->icmp_seq));
 
         // to print data in buffers
@@ -145,29 +165,43 @@ void send_ping(int sockfd, const char *dest) {
         //     printf("i: %d -- buff %x | control %x\n", i, (unsigned char) buffer[i], (unsigned char) control[i]);
         // }
 
+        //? get icmp data in case of error (code 8, type with error).
         for (struct cmsghdr *cmsg = CMSG_FIRSTHDR(&msg); cmsg != NULL; cmsg = CMSG_NXTHDR(&msg, cmsg)) {
             if (cmsg->cmsg_level == IPPROTO_IP && cmsg->cmsg_type == IP_TTL) {
                 ttl = *(uint8_t *)CMSG_DATA(cmsg);
-                printf("Received TTL: %d\n", ttl);
+                break;
+                // printf("Received TTL: %d\n", ttl);
             }
         }
+        // struct icmp *rec_icmp = (struct icmp *) &buffer;
+        // printf("type %d code %d millis %f ms -- %d %d %d\n", rec_icmp->icmp_type, rec_icmp->icmp_code, elapsed_time, rec_icmp->icmp_dun.id_ts.its_otime, rec_icmp->icmp_dun.id_ts.its_rtime, rec_icmp->icmp_dun.id_ts.its_ttime);
 
-        double elapsed_time = (end.tv_sec - start.tv_sec) +
-                (end.tv_nsec - start.tv_nsec) / 1000000.0; //? changes to millis
-
-        //? get icmp data in case of error (code 8, type with error).
-        struct icmp *rec_icmp = (struct icmp *) &buffer;
-        printf("type %d code %d millis %f ms -- %d %d %d\n", rec_icmp->icmp_type, rec_icmp->icmp_code, elapsed_time, rec_icmp->icmp_dun.id_ts.its_otime, rec_icmp->icmp_dun.id_ts.its_rtime, rec_icmp->icmp_dun.id_ts.its_ttime);
-
+        double elapsed_time = (end.tv_sec - start.tv_sec) * 1000.0 + 
+                    (end.tv_nsec - start.tv_nsec) / 1000000.0;
 
         printf("64 bytes from %s: icmp_seq=%d ttl=%u time=%.3f ms\n", dest, seq, ttl, elapsed_time);
-        usleep(1000000); //? here can change to add bonus of -i and -w
+        if (elapsed_time < min) {
+            min = elapsed_time;
+        }
+        if (elapsed_time > max) {
+            max = elapsed_time;
+        }
+        avg += elapsed_time;
+        packets_sent++;
+        usleep(1000000); //? here can change to add bonus of -i and -w //! min is -i 0.2 less error!
     }
 
     //! print stats here if control c or -c or -w
+    // 5 packets transmitted, 0 packets received, 100% packet loss
+    printf("--- %s ping statistics ---\n", dest); //! add received string here, if example.com then example.com if 3232235777 then 3232235777, not the number ip
+    printf("%d packets transmitted, %d packets received, %d%% packet loss\n", packets_sent, packets_sent - packets_lost, (int)(((float)packets_lost / packets_sent) * 100.0));
+    if (packets_sent - packets_lost > 0) {
+        // round-trip min/avg/max/stddev = 2.198/4.877/13.002/2.934 ms
+        //! code stddev -> if only one ping result then stddev is 0!
+        printf("round-trip min/avg/max/stddev = %.3f/%.3f/%.3f/%.3f ms\n", min, avg / packets_sent, max, stddev);
+    }
     close(sockfd);
 }
-
 
 void sigint_handler(int signal)
 {
@@ -191,6 +225,9 @@ int check_argv(int argc, char *argv[])
     return 1;
 }
 
+#include <arpa/inet.h>
+#include <netdb.h>
+
 int main(int argc, char *argv[])
 {
     //! argv into its own function, check if argv are correct!
@@ -204,23 +241,23 @@ int main(int argc, char *argv[])
     if (sockfd < 0) {
 
         printf("\nSocket file descriptor not received!\n");
-        return 0;
-    } else {
-        printf("\nSocket file descriptor %d received\n", sockfd);
+        return 1;
     }
     if (setsockopt(sockfd, SOL_IP, IP_TTL, &ttl_val, sizeof(ttl_val)) != 0) {
         printf("\nSetting socket options to TTL failed!\n");
         return 1;
-    } else {
-        printf("\nSocket set to TTL...\n");
     }
     int optval = 1; //? can i change this?
     if (setsockopt(sockfd, IPPROTO_IP, IP_RECVTTL, &optval, sizeof(optval)) < 0) {
         printf("\nSetting socket options to receive TTL failed!\n");
         return 1;
     }
+
+    struct timeval tv = {
+        .tv_sec = 1 //! this is -W option
+    };
     //? timeout bonus -W?
-    // setsockopt(ping_sockfd, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tv_out, sizeof tv_out);
+    setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tv, sizeof tv);
 
     /*
     The inet_addr() function converts the Internet host address cp from IPv4 numbers-and-dots notation into binary data in network byte order.
@@ -229,22 +266,46 @@ int main(int argc, char *argv[])
     */
 
     //? do i use this? i shouldnt be doing a dns lookup for an ip!!! so nope
-    // struct addrinfo hints; // Hints or "filters" for getaddrinfo()
-    // struct addrinfo *res;
+    struct addrinfo hints = {0}; // Hints or "filters" for getaddrinfo()
+    struct addrinfo *res;
+    // struct addrinfo *r;    // Pointer to iterate on results
+    // char ip_buffer[INET_ADDRSTRLEN];
 
-    // memset(&hints, 0, sizeof hints); // Initialize the structure
-    // hints.ai_family = AF_UNSPEC; // IPv4 or IPv6
-    // hints.ai_socktype = SOCK_STREAM; // TCP
+    hints.ai_family = AF_INET;
+    hints.ai_socktype = SOCK_DGRAM;
 
-    // // Get the associated IP address(es)
-    // int status; // Return value of getaddrinfo()
-    // status = getaddrinfo(argv[1], 0, &hints, &res);
-    //     if (status != 0) { // error !
-    //     fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(status));
-    //     return (2);
+    int status = getaddrinfo(argv[1], 0, &hints, &res);
+        if (status != 0) {
+        fprintf(stderr, "ft_ping: %s\n", gai_strerror(status));
+        // return (2);
+    }
+
+    // r = res;
+    // while (r != NULL) {
+    //     // void *addr; // Pointer to IP address
+    //     if (r->ai_family == AF_INET) { // IPv4
+    //         // we need to cast the address as a sockaddr_in structure to
+    //         // get the IP address, since ai_addr might be either
+    //         // sockaddr_in (IPv4) or sockaddr_in6 (IPv6)
+    //         struct sockaddr_in *ipv4 = (struct sockaddr_in *)r->ai_addr;
+    //         // Convert the integer into a legible IP address string
+    //         inet_ntop(r->ai_family, &(ipv4->sin_addr), ip_buffer, sizeof ip_buffer);
+    //         // printf("IPv4: %s\n", r->ai_canonname);
+    //     }
+    //     r = r->ai_next; // Next address in getaddrinfo()'s results
     // }
 
-    printf("IP adresses for %s\n", argv[1]);
-    send_ping(sockfd, argv[1]);
+    struct sockaddr_in dest_addr;
+    struct sockaddr_in *addr_in = (struct sockaddr_in *)res->ai_addr;
+    dest_addr.sin_addr = addr_in->sin_addr;
+
+    char ip_str[INET_ADDRSTRLEN];
+    inet_ntop(AF_INET, &dest_addr.sin_addr, ip_str, sizeof(ip_str));
+    // printf("Resolved IP: %s\n", ip_str);
+    freeaddrinfo(res);
+
+    // PING 192.168.1.99 (192.168.1.99): 56 data bytes //? this should be printed like this! and add id if its -v
+    printf("PING %s (%s): 56 data bytes\n", argv[1], ip_str); //! add id = 0x4242 if option -v
+    send_ping(sockfd, ip_str);
     return 0;
 }
