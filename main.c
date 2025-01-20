@@ -1,28 +1,54 @@
 #include <stdio.h>
 #include <sys/socket.h>
-#include <netinet/in.h>
+// #include <netinet/in.h> //?
 #include <stdlib.h>
 #include <unistd.h> //? this needed now
 #include <arpa/inet.h>
 #include <string.h>
 #include <netinet/ip_icmp.h>
-#include <netinet/ip.h>
+// #include <netinet/ip.h> //?
 
 //! TODO
-// make struct with all the data, int sockfd, const char *dest, icmp(?) what else?
-// add argv -? -v and bonus -ttl -c -W? and maybe -w with SO_RCVTIMEO
+// make struct with all the data, int sockfd, const char *dest, icmp(?), the argv and what else?
+// add argv parsing
+    // add argv -? -v and bonus -ttl -c -i for intervals.
+    // Maybe add -W (SO_RCVTIMEO) its the timeout time in recvmsg, -w is the max time ping before exiting, or if -c is done - no idea how to implement that
 // find a way to know if i need to do a dns lookup or not. add dns_lookup -> maybe parse if ip is 255.255.255.255 (char.char.char.char)
 // find a way to simulate errors and try them with ./ping ping and ft_ping
-// add argv parsing
-// make my own typedef with icmp + padding char[36] -> with data? or use icmphdr thats 8 bytes bc i dont really use much of the 28 of icmp  
-// icmp->icmp_ttime = 631043; //! add real time here
-// char recv_buf[400]; //! this buff should be same as payload
+// // icmp->icmp_ttime = 631043; //! add real time here
+// add header file
+    // add icmp struct int the header to make it work with c99.
+    // make my own typedef with icmp + padding char[36] -> with data? or use icmphdr thats 8 bytes bc i dont really use much of the 28 of icmp  
+    // easter egg in data padding of 64 bytes?
 // // calculate time between sendto and recvfrom and print it
 // print after each ping in the correct format (check if -v format changes)
-// easter egg in data padding of 64 bytes?
+    // add math of statistics --> 2 packets transmitted, 2 packets received, 0% packet loss - round-trip min/avg/max/stddev = 2.244/3.556/4.867/1.312 ms
 // // retrieve ttl from ip packet, how??
-// recv from socket with timeout? //! for now if we dont receive the info it just stays locked there in the recv line -> ping waits 10 seconds then says packet lost
-//? maybe use sendmsg and use same buffer and control for sendmsg and recvmsg, I can set TTL like this too insetad of setsocketopt
+// recv from socket with timeout? //! for now if we dont receive the info it just stays locked there in the recv line -> ping waits 10 seconds then says packet lost? ineutils says it waits forever... need to check
+// the time in the statistics is updated only after the first packet is sent, so if we do just one its 0, idk yet what it means but my time is wrong then -> tiempo total saltandonse el primer ping de cada intervalo, enotnces si -c 4 -i 0.5 = 1500~ ms
+//! ping 3232235777 should work for now doesnt --> output -v PING 3232235777 (192.168.1.1): 56 data bytes
+//! for now if ping 127.0.0.1 does work i dont receive the same message i sent. check later
+
+//! format of ping ineutils 2.0
+//! missing the dns lookup in case of domain
+// ./ping -v 3232235777                                                                                                                                                                                                                                                                                                01:25:34
+/*
+    PING 3232235777 (192.168.1.1): 56 data bytes, id 0x81e7 = 33255
+    64 bytes from 192.168.1.1: icmp_seq=0 ttl=255 time=4.263 ms
+    64 bytes from 192.168.1.1: icmp_seq=1 ttl=0 time=8.486 ms
+    ^C--- 3232235777 ping statistics ---
+    2 packets transmitted, 2 packets received, 0% packet loss
+    round-trip min/avg/max/stddev = 4.263/6.375/8.486/2.112 ms
+*/
+// ./ping 3232235777                                                                                                                                                                                                                                                                                                   01:25:36
+/*
+    PING 3232235777 (192.168.1.1): 56 data bytes
+    64 bytes from 192.168.1.1: icmp_seq=0 ttl=2 time=4.867 ms
+    64 bytes from 192.168.1.1: icmp_seq=1 ttl=3 time=2.244 ms
+    ^C--- 3232235777 ping statistics ---
+    2 packets transmitted, 2 packets received, 0% packet loss
+    round-trip min/avg/max/stddev = 2.244/3.556/4.867/1.312 ms
+*/
 
 //! change return type etc
 int check_argv(int argc, char *argv[])
@@ -38,7 +64,8 @@ void send_ping(int sockfd, const char *dest) {
     struct sockaddr_in dest_addr = {0};
     // memset(&dest_addr, 0, sizeof(dest_addr));
     dest_addr.sin_family = AF_INET;
-    dest_addr.sin_port = htons(0);;  // Not used for ICMP can erase, and is already init to 0
+    dest_addr.sin_port = htons(0);  // Not used for ICMP can erase, and is already init to 0
+
     // Set destination address
     dest_addr.sin_addr.s_addr = inet_addr(dest);
 
@@ -46,28 +73,30 @@ void send_ping(int sockfd, const char *dest) {
     //! make my own typedef with icmp + padding char[36] -> with random or easter egg data?
     char payload[64] = {0};
     struct icmp *icmp = (struct icmp *)(&payload);
-    memset(&payload, 0, sizeof(struct icmp));
+    // memset(&payload, 0, sizeof(struct icmp)); //! needed if not payload {0}
     uint16_t seq = 1;
+    uint8_t ttl;
 
     icmp->icmp_type = ICMP_ECHO;
-    icmp->icmp_code = htons(0);
-    icmp->icmp_id = htons(42); // done by the kernel so idc, adding for the !lulz
+    icmp->icmp_code = 0;
+    icmp->icmp_id = htons(16962); // done by the kernel so idc, adding for the !lulz //! 4242
 
-    struct timespec start, end; //? move this later
-    //! while 1 or if -c --> i < c
+    printf("id = %x\n", icmp->icmp_id); //! -v id 0x4242 = 16962
+
+    struct timespec ts, start, end; //? move this later
+    //! while 1 or if -c --> i < c or -w close when time is over
     while (1) {
         //! seq is wrong order for some reason its 01 00 instead of 00 01 bytes
         icmp->icmp_seq = htons(seq);
 
-        //! fix time
-        time_t seconds_since_epoch = time(NULL);  // time() returns the current time as time_t
-        icmp->icmp_otime = (uint32_t)seconds_since_epoch;
-        printf("Seconds since the Epoch: %ld\n", (long) seconds_since_epoch);
-        // icmp->icmp_rtime = 1; //? useless
-        //! add here real millis and we good with time
-        icmp->icmp_ttime = 631043; //! add real time here
+        clock_gettime(CLOCK_REALTIME, &ts);
+        uint32_t seconds_since_epoch = (uint32_t)ts.tv_sec;
+        uint32_t microseconds = ((uint32_t)ts.tv_nsec) / 1000;
 
-        // Send payload (kernel adds ICMP header)
+        printf("Seconds since the Epoch: %u, microseconds %u\n", seconds_since_epoch, microseconds);
+        icmp->icmp_otime = seconds_since_epoch;
+        icmp->icmp_ttime = microseconds;
+
         clock_gettime(CLOCK_MONOTONIC, &start);
         ssize_t bytes_sent = sendto(sockfd, payload, sizeof(payload), 0,
                                 (struct sockaddr*)&dest_addr, sizeof(dest_addr));
@@ -77,12 +106,16 @@ void send_ping(int sockfd, const char *dest) {
             exit(EXIT_FAILURE);
         }
 
-        printf("Sent ICMP Echo Request with payload\n");
+        printf("ICMP packet sent: Seq: %u, Timestamp: %u.%u\n", ntohs(icmp->icmp_seq), seconds_since_epoch, microseconds);
 
-        //? how much buffer and control is needed (?)
-        char buffer[1024] = {0};
-        char control[1024] = {0};
-        struct iovec iov = { .iov_base = buffer, .iov_len = sizeof(buffer) };
+        char buffer[64] = {0};
+        char control[64] = {0};
+
+        struct iovec iov = {
+            .iov_base = buffer,
+            .iov_len = sizeof(buffer)
+        };
+
         struct msghdr msg = {
             .msg_name = NULL,
             .msg_namelen = 0,
@@ -92,9 +125,8 @@ void send_ping(int sockfd, const char *dest) {
             .msg_controllen = sizeof(control),
         };
 
-        ssize_t bytes_received = recvmsg(sockfd, &msg, 0); //? MSG_DONTWAIT -> no timeout
+        ssize_t bytes_received = recvmsg(sockfd, &msg, 0); //? MSG_DONTWAIT -> no timeout?
         clock_gettime(CLOCK_MONOTONIC, &end);
-
         if (bytes_received < 0) {
             perror("recvmsg");
             close(sockfd);
@@ -102,6 +134,7 @@ void send_ping(int sockfd, const char *dest) {
         }
 
         printf("Waiting for incoming ICMP packets... received size %ld\n", bytes_received);
+        // printf("ICMP reply received: Seq=%u\n", ntohs(icmp->icmp_seq));
 
         // to print data in buffers
         // for (int i = 0; i < 20; i++) {
@@ -110,7 +143,7 @@ void send_ping(int sockfd, const char *dest) {
 
         for (struct cmsghdr *cmsg = CMSG_FIRSTHDR(&msg); cmsg != NULL; cmsg = CMSG_NXTHDR(&msg, cmsg)) {
             if (cmsg->cmsg_level == IPPROTO_IP && cmsg->cmsg_type == IP_TTL) {
-                int ttl = *(int *)CMSG_DATA(cmsg);
+                ttl = *(uint8_t *)CMSG_DATA(cmsg);
                 printf("Received TTL: %d\n", ttl);
             }
         }
@@ -118,9 +151,13 @@ void send_ping(int sockfd, const char *dest) {
         double elapsed_time = (end.tv_sec - start.tv_sec) +
                 (end.tv_nsec - start.tv_nsec) / 1000000.0; //? changes to millis
 
+        //? get icmp data in case of error (code 8, type with error).
         struct icmp *rec_icmp = (struct icmp *) &buffer;
         printf("type %d code %d millis %f ms -- %d %d %d\n", rec_icmp->icmp_type, rec_icmp->icmp_code, elapsed_time, rec_icmp->icmp_dun.id_ts.its_otime, rec_icmp->icmp_dun.id_ts.its_rtime, rec_icmp->icmp_dun.id_ts.its_ttime);
-        // usleep(1000000); //? here can change to add bonus of -W
+        // usleep(1000000); //? here can change to add bonus of -i and -w
+
+
+        printf("64 bytes from %s: icmp_seq=%d ttl=%u time=%.3f ms\n", dest, seq, ttl, elapsed_time);
         seq++;
 
         break; //! remove this later
@@ -161,7 +198,7 @@ int main(int argc, char *argv[])
         printf("\nSetting socket options to receive TTL failed!\n");
         return 1;
     }
-    //? timeout bonus -w?
+    //? timeout bonus -W?
     // setsockopt(ping_sockfd, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tv_out, sizeof tv_out);
 
     /*
@@ -187,7 +224,6 @@ int main(int argc, char *argv[])
     // }
 
     // printf("IP adresses for %s\n", argv[1]);
-
     send_ping(sockfd, argv[1]);
     return 0;
 }
