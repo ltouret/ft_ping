@@ -10,6 +10,9 @@
 // #include <netdb.h> //?
 #include <signal.h>
 #include <time.h>
+
+#include <limits.h>
+#include <math.h>
 #include <float.h>
 
 //! TODO
@@ -84,22 +87,17 @@ void send_ping(int sockfd, const char *dest) {
 
     // ! stats - var to track lost packets -> add counter for total packets and for -c, reset seq to 0 after max uint16_t 65k
     //? maybe add all of this in struct stats?
-    int packets_sent = 0, packets_lost = 0;
-    float min  = FLT_MAX, avg = 0.0, max = 0.0, stddev = 0.0; //? maybe avg needs to be double
-    //! remove later
-    // (void) packets_sent;
-    // (void) packets_lost;
-    // (void) min;
-    // (void) max;
-    // (void) avg;
-    (void) stddev;
+    unsigned int packets_sent = 0, packets_lost = 0;
+    float min  = FLT_MAX, max = 0.0; //? maybe avg needs to be double
+    long tsum = 0;                // Sum of RTTs for average calculation
+    long long tsum2 = 0;          // Sum of squared RTTs for variance
 
     uint8_t ttl; //? is there a way i can remove this? or add to stats struct?
 
     icmp->icmp_type = ICMP_ECHO;
     icmp->icmp_code = 0;
-    icmp->icmp_id = htons(16962); // done by the kernel so idc, adding for the !lulz //! 4242
-    // icmp->icmp_seq = htons(++seq); //? change this
+    icmp->icmp_id = htons(16962); // done by the kernel so idc, adding for the !lulz //! 4242 - should be random if we follow ping
+    icmp->icmp_seq = htons(0); //? change this
 
     // printf("id = %x\n", icmp->icmp_id); //! -v id 0x4242 = 16962
 
@@ -124,11 +122,10 @@ void send_ping(int sockfd, const char *dest) {
     //! while stop = 1 or if -c --> i < c or -w close when time is over
     while (stop) {
         //! seq is wrong order for some reason its 01 00 instead of 00 01 bytes
-        icmp->icmp_seq = htons(++seq); //? change this
+        icmp->icmp_seq = htons(++seq); //? change this, add in the end so seq = 0
 
         // clock_gettime(CLOCK_REALTIME, &ts);
         clock_gettime(CLOCK_REALTIME, &start);
-
         icmp->icmp_otime = (uint32_t)start.tv_sec;
         icmp->icmp_ttime = ((uint32_t)start.tv_nsec) / 1000;
 
@@ -137,11 +134,11 @@ void send_ping(int sockfd, const char *dest) {
                                 (struct sockaddr*)&dest_addr, sizeof(dest_addr));
         //? packets_lost++? what do i do here? just quit bc its broken? -> for now if it breaks its an infinite loop, maybe quit
         if (bytes_sent < 0) {
-            // perror("sendto failed");
-            packets_lost++;
-            continue;
-            // close(sockfd);
-            // exit(EXIT_FAILURE);
+            perror("sendto failed");
+            // packets_lost++;
+            // continue;
+            close(sockfd);
+            exit(EXIT_FAILURE);
         }
 
         // printf("ICMP packet sent: Seq: %u, Timestamp: %u.%u\n", ntohs(icmp->icmp_seq), icmp->icmp_otime, icmp->icmp_ttime);
@@ -176,29 +173,50 @@ void send_ping(int sockfd, const char *dest) {
         // struct icmp *rec_icmp = (struct icmp *) &buffer;
         // printf("type %d code %d millis %f ms -- %d %d %d\n", rec_icmp->icmp_type, rec_icmp->icmp_code, elapsed_time, rec_icmp->icmp_dun.id_ts.its_otime, rec_icmp->icmp_dun.id_ts.its_rtime, rec_icmp->icmp_dun.id_ts.its_ttime);
 
-        double elapsed_time = (end.tv_sec - start.tv_sec) * 1000.0 + 
-                    (end.tv_nsec - start.tv_nsec) / 1000000.0;
+        // double elapsed_time = (end.tv_sec - start.tv_sec) * 1000.0 + 
+                    // (end.tv_nsec - start.tv_nsec) / 1000000.0;
+        
+            double elapsed_time = (end.tv_sec - start.tv_sec) * 1000.0 +
+                          (end.tv_nsec - start.tv_nsec) / 1000000.0; //? better to get micros in another way?
 
         printf("64 bytes from %s: icmp_seq=%d ttl=%u time=%.3f ms\n", dest, seq, ttl, elapsed_time);
-        if (elapsed_time < min) {
+        unsigned long rtt = (long)(elapsed_time * 1000); // Convert RTT to microseconds
+        if (elapsed_time < min) { //? rrt or elapsed_time
             min = elapsed_time;
         }
-        if (elapsed_time > max) {
+        if (elapsed_time > max) { //? rrt or elapsed_time
             max = elapsed_time;
         }
-        avg += elapsed_time;
+        tsum += rtt;
+        tsum2 += (long long)rtt * rtt;
         packets_sent++;
         usleep(1000000); //? here can change to add bonus of -i and -w //! min is -i 0.2 less error!
     }
 
+    //! notas para leo de manana, fijate en los tipo de dato que estoy usando para rtt, tsum tsum2 y los otros nuevos datos que creo, porque elapsed time no lo / 1000 y min max y los otros si y se print bien?
+
+    unsigned int total = packets_sent - packets_lost;
+    long tmavg = tsum / total; // Average RTT
+    long long tmvar = 0;       // Variance
+
+    if (tsum < INT_MAX) {
+        // Compute variance using safe formula
+        tmvar = (tsum2 - ((long long)tsum * tsum / total)) / total;
+    } else {
+        // Alternative formula to prevent overflow
+        tmvar = (tsum2 / total) - (tmavg * tmavg);
+    }
+
+    double tmdev = sqrt((double)tmvar); // Mean deviation
+
     //! print stats here if control c or -c or -w
     // 5 packets transmitted, 0 packets received, 100% packet loss
     printf("--- %s ping statistics ---\n", dest); //! add received string here, if example.com then example.com if 3232235777 then 3232235777, not the number ip
-    printf("%d packets transmitted, %d packets received, %d%% packet loss\n", packets_sent, packets_sent - packets_lost, (int)(((float)packets_lost / packets_sent) * 100.0));
+    printf("%d packets transmitted, %d packets received, %d%% packet loss\n", packets_sent, packets_sent - packets_lost, (int)(((float)packets_lost / packets_sent) * 100.0)); //?           (int)((packets_lost * 100.0) / packets_sent));
     if (packets_sent - packets_lost > 0) {
         // round-trip min/avg/max/stddev = 2.198/4.877/13.002/2.934 ms
         //! code stddev -> if only one ping result then stddev is 0!
-        printf("round-trip min/avg/max/stddev = %.3f/%.3f/%.3f/%.3f ms\n", min, avg / packets_sent, max, stddev);
+        printf("round-trip min/avg/max/stddev = %.3f/%.3f/%.3f/%.3f ms\n", min, tmavg / 1000.0, max, tmdev / 1000);
     }
     close(sockfd);
 }
