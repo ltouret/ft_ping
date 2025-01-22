@@ -14,6 +14,7 @@
 
 //! TODO
 // clean all, cut into smaller functions
+// if (bytes_sent == 0 or it block what do i do, just pack_lost++ and continue, this can lead to an infinite loop
 // // add control + c signal catch
 // add argv parsing
     // add argv -? -v and bonus -ttl -c -i for intervals.
@@ -35,28 +36,28 @@
 //! for now if ping 127.0.0.1 does work i dont receive the same message i sent. check later
 // uint16_t seq = 0; //? for ./ping work froms 0 check in real debian - local machine starts from 1...
 
-//! format of ping ineutils 2.0 -> only diff is id 0x81e7 = 33255
-//! missing the dns lookup in case of domain
-// print after each ping in the correct format (check if -v format changes)
-// add math of statistics --> 2 packets transmitted, 2 packets received, 0% packet loss - round-trip min/avg/max/stddev = 2.244/3.556/4.867/1.312 ms
-// ./ping -v 3232235777
-/*
-    PING 3232235777 (192.168.1.1): 56 data bytes, id 0x81e7 = 33255
-    64 bytes from 192.168.1.1: icmp_seq=0 ttl=255 time=4.263 ms
-    64 bytes from 192.168.1.1: icmp_seq=1 ttl=0 time=8.486 ms
-    ^C--- 3232235777 ping statistics ---
-    2 packets transmitted, 2 packets received, 0% packet loss
-    round-trip min/avg/max/stddev = 4.263/6.375/8.486/2.112 ms
-*/
-// ./ping 3232235777
-/*
-    PING 3232235777 (192.168.1.1): 56 data bytes
-    64 bytes from 192.168.1.1: icmp_seq=0 ttl=2 time=4.867 ms
-    64 bytes from 192.168.1.1: icmp_seq=1 ttl=3 time=2.244 ms
-    ^C--- 3232235777 ping statistics ---
-    2 packets transmitted, 2 packets received, 0% packet loss
-    round-trip min/avg/max/stddev = 2.244/3.556/4.867/1.312 ms
-*/
+// ! format of ping ineutils 2.0 -> only diff is id 0x81e7 = 33255
+// //  missing the dns lookup in case of domain
+// // print after each ping in the correct format (check if -v format changes)
+// // add math of statistics --> 2 packets transmitted, 2 packets received, 0% packet loss - round-trip min/avg/max/stddev = 2.244/3.556/4.867/1.312 ms
+// // ./ping -v 3232235777
+// /*
+//     PING 3232235777 (192.168.1.1): 56 data bytes, id 0x81e7 = 33255
+//     64 bytes from 192.168.1.1: icmp_seq=0 ttl=255 time=4.263 ms
+//     64 bytes from 192.168.1.1: icmp_seq=1 ttl=0 time=8.486 ms
+//     ^C--- 3232235777 ping statistics ---
+//     2 packets transmitted, 2 packets received, 0% packet loss
+//     round-trip min/avg/max/stddev = 4.263/6.375/8.486/2.112 ms
+// */
+// // ./ping 3232235777
+// /*
+//     PING 3232235777 (192.168.1.1): 56 data bytes
+//     64 bytes from 192.168.1.1: icmp_seq=0 ttl=2 time=4.867 ms
+//     64 bytes from 192.168.1.1: icmp_seq=1 ttl=3 time=2.244 ms
+//     ^C--- 3232235777 ping statistics ---
+//     2 packets transmitted, 2 packets received, 0% packet loss
+//     round-trip min/avg/max/stddev = 2.244/3.556/4.867/1.312 ms
+// */
 // ./ping -v 192.168.1.99 //! bad address -> stats no round-trip min/avg etc
 /*
     PING 192.168.1.99 (192.168.1.99): 56 data bytes, id 0x857d = 34173
@@ -66,7 +67,76 @@
 
 int stop = 1; // char for the lulz?
 
+//! change data types can be more efficent
+typedef struct s_ping_stats{
+    unsigned long sum;
+    unsigned long sum_sq;
+    long min;
+    long max;
+    long packets_sent;
+    long packets_lost;
+} t_ping_stats;
+
+void update_stats(t_ping_stats *stats, long elapsed_micros) {
+    stats->sum += elapsed_micros;
+    stats->sum_sq += elapsed_micros * elapsed_micros;
+    
+    if (elapsed_micros < stats->min || stats->packets_sent == 0) {
+        stats->min = elapsed_micros;
+    }
+    if (elapsed_micros > stats->max) {
+        stats->max = elapsed_micros;
+    }
+    stats->packets_sent++;
+}
+
+#include <limits.h>
+
+//! code my own sqrt
+//? code this better!
+double square_root(double val)
+{
+	double ans = 1, sqr = 1, i = 1;
+	while (sqr <= val)	//checking if squares of the numbers from 1 till given value is smaller than the  number
+	{
+		i++;
+		sqr = i * i;
+	}
+	ans = i - 1;
+	return ans;
+}
+
+void print_stats(t_ping_stats *stats) {
+    //? PING 192.168.1.99 (192.168.1.99): 56 data bytes, id 0x857d = 34173
+    //! IF ITS -v the i still need to add id 0x857d = 34173
+    //! 0 packets transmitted, 0 packets received, -2147483648% packet loss  
+    //! if 0 breaks if i dont add packets_sent > 0
+    //? do print if packets_sent == 0?
+    if (stats->packets_sent > 0 && stats->packets_sent - stats->packets_lost > 0) {
+        printf("%ld packets transmitted, %ld packets received, %d%% packet loss\n", stats->packets_sent, stats->packets_sent - stats->packets_lost, (int)(((float)stats->packets_lost / stats->packets_sent) * 100.0));
+        long total = stats->packets_sent - stats->packets_lost;
+
+        long avg = stats->sum / total;
+        long long variance;
+
+        if (stats->sum < INT_MAX)
+            variance = (stats->sum_sq - ((stats->sum * stats->sum) / total)) / total;
+        else
+            variance = (stats->sum_sq / total) - (avg * avg);
+
+        long stddev = square_root(variance);
+
+        printf("round-trip min/avg/max/stddev = %ld %lu %ld.%03ld/%ld.%03ld/%ld.%03ld/%ld.%03ld ms\n",
+            stats->sum, stats->sum_sq,
+            stats->min / 1000, stats->min % 1000,
+            avg / 1000, avg % 1000,
+            stats->max / 1000, stats->max % 1000,
+            stddev / 1000, stddev % 1000);
+    }
+}
+
 void send_ping(int sockfd, const char *dest) {
+    t_ping_stats stats = {0}; 
     struct sockaddr_in dest_addr = {0};
     // memset(&dest_addr, 0, sizeof(dest_addr));
     dest_addr.sin_family = AF_INET;
@@ -84,15 +154,6 @@ void send_ping(int sockfd, const char *dest) {
 
     // ! stats - var to track lost packets -> add counter for total packets and for -c, reset seq to 0 after max uint16_t 65k
     //? maybe add all of this in struct stats?
-    int packets_sent = 0, packets_lost = 0;
-    float min  = FLT_MAX, avg = 0.0, max = 0.0, stddev = 0.0; //? maybe avg needs to be double
-    //! remove later
-    // (void) packets_sent;
-    // (void) packets_lost;
-    // (void) min;
-    // (void) max;
-    // (void) avg;
-    (void) stddev;
 
     uint8_t ttl; //? is there a way i can remove this? or add to stats struct?
 
@@ -129,36 +190,34 @@ void send_ping(int sockfd, const char *dest) {
         // clock_gettime(CLOCK_REALTIME, &ts);
         clock_gettime(CLOCK_REALTIME, &start);
 
+        //! do i need to typecast?
         icmp->icmp_otime = (uint32_t)start.tv_sec;
         icmp->icmp_ttime = ((uint32_t)start.tv_nsec) / 1000;
 
         clock_gettime(CLOCK_MONOTONIC, &start);
         ssize_t bytes_sent = sendto(sockfd, payload, sizeof(payload), 0,
                                 (struct sockaddr*)&dest_addr, sizeof(dest_addr));
+        // packets_sent++; //? what order do i add this?
         //? packets_lost++? what do i do here? just quit bc its broken? -> for now if it breaks its an infinite loop, maybe quit
         if (bytes_sent < 0) {
             // perror("sendto failed");
-            packets_lost++;
+            stats.packets_lost++;
             continue;
             // close(sockfd);
             // exit(EXIT_FAILURE);
         }
-
-        // printf("ICMP packet sent: Seq: %u, Timestamp: %u.%u\n", ntohs(icmp->icmp_seq), icmp->icmp_otime, icmp->icmp_ttime);
 
         ssize_t bytes_received = recvmsg(sockfd, &msg, 0); //? MSG_DONTWAIT -> no timeout?
         clock_gettime(CLOCK_MONOTONIC, &end);
-        //? if timeout and i dont receive the bytes the program exists it should just print Host unreachable, packets_lost++ and what else?
+        //? if timeout and i dont receive the bytes the program exits it should just print Host unreachable, packets_lost++ and what else?
+        //! and no usleep + packet_sent++! thats bad
         if (bytes_received < 0) {
             // perror("recvmsg"); //? do i remove this?
-            packets_lost++;
+            stats.packets_lost++;
             continue;
             // close(sockfd);
             // exit(EXIT_FAILURE);
         }
-
-        // printf("Waiting for incoming ICMP packets... received size %ld\n", bytes_received);
-        // printf("ICMP reply received: Seq=%u\n", ntohs(icmp->icmp_seq));
 
         // to print data in buffers
         // for (int i = 0; i < 20; i++) {
@@ -169,37 +228,26 @@ void send_ping(int sockfd, const char *dest) {
         for (struct cmsghdr *cmsg = CMSG_FIRSTHDR(&msg); cmsg != NULL; cmsg = CMSG_NXTHDR(&msg, cmsg)) {
             if (cmsg->cmsg_level == IPPROTO_IP && cmsg->cmsg_type == IP_TTL) {
                 ttl = *(uint8_t *)CMSG_DATA(cmsg);
-                break;
+                // break; //? shoould i break here?
                 // printf("Received TTL: %d\n", ttl);
             }
         }
+
+        //! this is for error codes later!
         // struct icmp *rec_icmp = (struct icmp *) &buffer;
         // printf("type %d code %d millis %f ms -- %d %d %d\n", rec_icmp->icmp_type, rec_icmp->icmp_code, elapsed_time, rec_icmp->icmp_dun.id_ts.its_otime, rec_icmp->icmp_dun.id_ts.its_rtime, rec_icmp->icmp_dun.id_ts.its_ttime);
 
-        double elapsed_time = (end.tv_sec - start.tv_sec) * 1000.0 + 
-                    (end.tv_nsec - start.tv_nsec) / 1000000.0;
+        long elapsed_micros = (end.tv_sec - start.tv_sec) * 1000000LL + 
+                     (end.tv_nsec - start.tv_nsec) / 1000;
+        update_stats(&stats, elapsed_micros);
 
-        printf("64 bytes from %s: icmp_seq=%d ttl=%u time=%.3f ms\n", dest, seq, ttl, elapsed_time);
-        if (elapsed_time < min) {
-            min = elapsed_time;
-        }
-        if (elapsed_time > max) {
-            max = elapsed_time;
-        }
-        avg += elapsed_time;
-        packets_sent++;
-        usleep(1000000); //? here can change to add bonus of -i and -w //! min is -i 0.2 less error!
+        printf("64 bytes from %s: icmp_seq=%d ttl=%u time=%ld.%03ld ms\n", dest, seq, ttl, elapsed_micros / 1000, elapsed_micros % 1000);
+        usleep(1000000); //? here can change to add bonus of -i and -w //! min is -i 0.2 less print error!
     }
 
-    //! print stats here if control c or -c or -w
-    // 5 packets transmitted, 0 packets received, 100% packet loss
+    //! move this to print_stats
     printf("--- %s ping statistics ---\n", dest); //! add received string here, if example.com then example.com if 3232235777 then 3232235777, not the number ip
-    printf("%d packets transmitted, %d packets received, %d%% packet loss\n", packets_sent, packets_sent - packets_lost, (int)(((float)packets_lost / packets_sent) * 100.0));
-    if (packets_sent - packets_lost > 0) {
-        // round-trip min/avg/max/stddev = 2.198/4.877/13.002/2.934 ms
-        //! code stddev -> if only one ping result then stddev is 0!
-        printf("round-trip min/avg/max/stddev = %.3f/%.3f/%.3f/%.3f ms\n", min, avg / packets_sent, max, stddev);
-    }
+    print_stats(&stats);
     close(sockfd);
 }
 
@@ -277,7 +325,7 @@ int main(int argc, char *argv[])
     int status = getaddrinfo(argv[1], 0, &hints, &res);
         if (status != 0) {
         fprintf(stderr, "ft_ping: %s\n", gai_strerror(status));
-        // return (2);
+        return (2); //! if wrong domain or ip fails here, change this to correct output
     }
 
     // r = res;
