@@ -35,6 +35,7 @@
 //! ping 3232235777 should work for now doesnt --> output -v PING 3232235777 (192.168.1.1): 56 data bytes (add the ip)
 //! for now if ping 127.0.0.1 does work i dont receive the same message i sent. check later
 // uint16_t seq = 0; //? for ./ping work froms 0 check in real debian - local machine starts from 1...
+//! what do i do with sendto, does it block if wrong ip? if it does find a way for it to have a timeout and not block, same for recvmsg
 
 // ! format of ping ineutils 2.0 -> only diff is id 0x81e7 = 33255
 // //  missing the dns lookup in case of domain
@@ -81,7 +82,7 @@ void update_stats(t_ping_stats *stats, long elapsed_micros) {
     stats->sum += elapsed_micros;
     stats->sum_sq += elapsed_micros * elapsed_micros;
     
-    if (elapsed_micros < stats->min || stats->packets_sent == 0) {
+    if (elapsed_micros < stats->min) {
         stats->min = elapsed_micros;
     }
     if (elapsed_micros > stats->max) {
@@ -112,8 +113,9 @@ void print_stats(t_ping_stats *stats) {
     //! 0 packets transmitted, 0 packets received, -2147483648% packet loss  
     //! if 0 breaks if i dont add packets_sent > 0
     //? do print if packets_sent == 0?
+    printf("%ld packets transmitted, %ld packets received, %d%% packet loss\n", stats->packets_sent, stats->packets_sent - stats->packets_lost, (int)(((float)stats->packets_lost / stats->packets_sent) * 100.0));
     if (stats->packets_sent > 0 && stats->packets_sent - stats->packets_lost > 0) {
-        printf("%ld packets transmitted, %ld packets received, %d%% packet loss\n", stats->packets_sent, stats->packets_sent - stats->packets_lost, (int)(((float)stats->packets_lost / stats->packets_sent) * 100.0));
+        // printf("%ld packets transmitted, %ld packets received, %d%% packet loss\n", stats->packets_sent, stats->packets_sent - stats->packets_lost, (int)(((float)stats->packets_lost / stats->packets_sent) * 100.0));
         long total = stats->packets_sent - stats->packets_lost;
 
         long avg = stats->sum / total;
@@ -126,8 +128,7 @@ void print_stats(t_ping_stats *stats) {
 
         long stddev = square_root(variance);
 
-        printf("round-trip min/avg/max/stddev = %ld %lu %ld.%03ld/%ld.%03ld/%ld.%03ld/%ld.%03ld ms\n",
-            stats->sum, stats->sum_sq,
+        printf("round-trip min/avg/max/stddev = %ld.%03ld/%ld.%03ld/%ld.%03ld/%ld.%03ld ms\n",
             stats->min / 1000, stats->min % 1000,
             avg / 1000, avg % 1000,
             stats->max / 1000, stats->max % 1000,
@@ -136,7 +137,8 @@ void print_stats(t_ping_stats *stats) {
 }
 
 void send_ping(int sockfd, const char *dest) {
-    t_ping_stats stats = {0}; 
+    t_ping_stats stats = {0};
+    stats.min = LONG_MAX;
     struct sockaddr_in dest_addr = {0};
     // memset(&dest_addr, 0, sizeof(dest_addr));
     dest_addr.sin_family = AF_INET;
@@ -195,9 +197,10 @@ void send_ping(int sockfd, const char *dest) {
         icmp->icmp_ttime = ((uint32_t)start.tv_nsec) / 1000;
 
         clock_gettime(CLOCK_MONOTONIC, &start);
+        //! what do i do with sendto, does it block if wrong ip? if it does find a way for it to have a timeout and not block, same for recvmsg
         ssize_t bytes_sent = sendto(sockfd, payload, sizeof(payload), 0,
                                 (struct sockaddr*)&dest_addr, sizeof(dest_addr));
-        // packets_sent++; //? what order do i add this?
+        // stats.packets_sent++; //? what order do i add this?
         //? packets_lost++? what do i do here? just quit bc its broken? -> for now if it breaks its an infinite loop, maybe quit
         if (bytes_sent < 0) {
             // perror("sendto failed");
@@ -207,12 +210,14 @@ void send_ping(int sockfd, const char *dest) {
             // exit(EXIT_FAILURE);
         }
 
+        //! what do i do with sendto, does it block if wrong ip? if it does find a way for it to have a timeout and not block, same for recvmsg
         ssize_t bytes_received = recvmsg(sockfd, &msg, 0); //? MSG_DONTWAIT -> no timeout?
         clock_gettime(CLOCK_MONOTONIC, &end);
         //? if timeout and i dont receive the bytes the program exits it should just print Host unreachable, packets_lost++ and what else?
         //! and no usleep + packet_sent++! thats bad
         if (bytes_received < 0) {
             // perror("recvmsg"); //? do i remove this?
+            stats.packets_sent++; //? what order do i add this?
             stats.packets_lost++;
             continue;
             // close(sockfd);
