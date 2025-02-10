@@ -283,44 +283,38 @@ typedef struct s_ping
     int verbose;
     
     // bonus flags
-    int ttl;
-    int count;
-    int interval;
-    int recv_timeout;
+    int ttl; // > 0
+    int count; // >= 0
+    int interval; // > 0.2
+    int recv_timeout; // > 0
 } t_ping;
 
-void check_int(char *str)
+int check_int(char *str)
 {
-   char *endptr;
-   long int num;
+    char *endptr;
+    int num = (int)strtol(str, &endptr, 10);
 
-   // Convert the string to a long integer
-   num = strtol(str, &endptr, 10);
-   if (endptr == str) {
-      printf("No digits were found.\n");
-   } else if (*endptr != '\0') {
-      printf("Invalid character: %c\n", *endptr);
-   } else {
-      printf("The number is: %ld\n", num);
-   }
+    if (endptr == str || *endptr != '\0')
+    {
+        fprintf(stderr, "ft_ping: invalid value (`%s' near `%s')\n", str, endptr);
+        exit(1);
+    }
+    // printf("The number is: %d\n", num);
+    return num;
 }
-
-// void check_argc(int number_of_args, int argc)
-// {
-
-// }
 
 void check_bonus_argv(int *bonus_arg, int i, int argc, char *argv[])
 {
-    if (i + 1 < argc) {
-        int ttl_value = atoi(argv[i + 1]); //! change to other strtol
+    if (i + 1 < argc)
+    {
+        int ttl_value = check_int(argv[i + 1]);
         if (ttl_value < 0)
         {
             fprintf(stderr, "TTL value must be non-negative.\n");
             exit(1);
         }
         *bonus_arg = ttl_value;
-        i++; // Skip the next argument (the value)
+        i++;
     }
     else
     {
@@ -333,6 +327,11 @@ void check_bonus_argv(int *bonus_arg, int i, int argc, char *argv[])
 #include <unistd.h>
 
 //! change return type etc
+// fix bonus arg values :
+    // int ttl; // > 0
+    // int count; // >= 0
+    // int interval; // > 0.2
+    // int recv_timeout; // > 0
 int check_argv(t_ping *ping_data, int argc, char *argv[])
 {
     (void) ping_data;
