@@ -70,8 +70,8 @@ int stop = 1; // char for the lulz?
 
 //! change data types can be more efficent
 typedef struct s_ping_stats{
-    unsigned long sum;
-    unsigned long sum_sq;
+    long sum;
+    long sum_sq;
     long min;
     long max;
     long packets_sent;
@@ -270,11 +270,113 @@ void set_signal_action(void)
     sigaction(SIGINT, &act, NULL);
 }
 
-//! change return type etc
-int check_argv(int argc, char *argv[])
+//! add icmp or not?
+typedef struct s_ping
 {
-    (void) argc;
-    (void) argv;
+    // int icmp_data;
+    int sockfd;
+    char *ip_argv;
+    char ip_number[INET_ADDRSTRLEN];
+    struct sockaddr_in dest_addr;
+
+    // flags
+    int verbose;
+    
+    // bonus flags
+    int ttl;
+    int count;
+    int interval;
+    int recv_timeout;
+} t_ping;
+
+void check_int(char *str)
+{
+   char *endptr;
+   long int num;
+
+   // Convert the string to a long integer
+   num = strtol(str, &endptr, 10);
+   if (endptr == str) {
+      printf("No digits were found.\n");
+   } else if (*endptr != '\0') {
+      printf("Invalid character: %c\n", *endptr);
+   } else {
+      printf("The number is: %ld\n", num);
+   }
+}
+
+// void check_argc(int number_of_args, int argc)
+// {
+
+// }
+
+void check_bonus_argv(int *bonus_arg, int i, int argc, char *argv[])
+{
+    if (i + 1 < argc) {
+        int ttl_value = atoi(argv[i + 1]); //! change to other strtol
+        if (ttl_value < 0)
+        {
+            fprintf(stderr, "TTL value must be non-negative.\n");
+            exit(1);
+        }
+        *bonus_arg = ttl_value;
+        i++; // Skip the next argument (the value)
+    }
+    else
+    {
+        fprintf(stderr, "Error: --ttl requires an argument.\n");
+        exit(1);
+        // return 1;
+    }
+}
+
+#include <unistd.h>
+
+//! change return type etc
+int check_argv(t_ping *ping_data, int argc, char *argv[])
+{
+    (void) ping_data;
+    for (int i = 1; i < argc; i++)
+    {
+        if (!strcmp(argv[i], "-?"))
+        {
+            printf("print usage info of pingu\n");
+            // break;
+            exit(1);
+        }
+        else if (!strcmp(argv[i], "-v"))
+        {
+            // add id 0x81e7 = 33255
+            ping_data->verbose = 1;
+        }
+        else if (!strcmp(argv[i], "--ttl"))
+        {
+            // change IP_RECVTTL
+            check_bonus_argv(&ping_data->ttl, i, argc, argv);
+        }
+        else if (!strcmp(argv[i], "-c"))
+        {
+            // count till -c then exit
+            check_bonus_argv(&ping_data->count, i, argc, argv);
+        }
+        else if (!strcmp(argv[i], "-i"))
+        {
+            // change usleep
+            check_bonus_argv(&ping_data->interval, i, argc, argv);
+        }
+        else if (!strcmp(argv[i], "-W"))
+        {
+            // change SO_RCVTIMEO
+            check_bonus_argv(&ping_data->recv_timeout, i, argc, argv);
+        }
+        //! add to get the ip too X)
+        //! else: if is ip add ip to struct, ip can be a whole number | 255.255.255.255 | domain.com else print wrong flag
+        // else if (!strcmp(argv[i], "-W"))
+        // {
+        //     // change SO_RCVTIMEO
+        // }
+
+    }
     return 1;
 }
 
@@ -284,10 +386,18 @@ int check_argv(int argc, char *argv[])
 int main(int argc, char *argv[])
 {
     //! argv into its own function, check if argv are correct!
-    check_argv(argc, argv);
+    // move this to init()
+    t_ping ping_data = {0};
+    ping_data.ttl = 64;
+    ping_data.count = 0; //! how to do this infinite? INFINITE?
+    ping_data.interval = 1;
+    ping_data.recv_timeout = 1;
+    check_argv(&ping_data, argc, argv);
+    printf("received argv v %d ttl %d c %d i %d W %d\n ", ping_data.verbose, ping_data.ttl, ping_data.count, ping_data.interval, ping_data.recv_timeout);
     set_signal_action();
 
     //? change this into its own function, like socket_init
+    // this to init_socket
     int sockfd;
     int ttl_val = 64;
     sockfd = socket(AF_INET, SOCK_DGRAM, IPPROTO_ICMP);
@@ -328,7 +438,7 @@ int main(int argc, char *argv[])
     hints.ai_socktype = SOCK_DGRAM;
 
     int status = getaddrinfo(argv[1], 0, &hints, &res);
-        if (status != 0) {
+    if (status != 0) {
         fprintf(stderr, "ft_ping: %s\n", gai_strerror(status));
         return (2); //! if wrong domain or ip fails here, change this to correct output
     }
