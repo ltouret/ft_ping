@@ -7,12 +7,15 @@
 #include <string.h>
 #include <netinet/ip_icmp.h>
 // #include <netinet/ip.h> //?
-// #include <netdb.h> //?
+#include <netdb.h> //?
 #include <signal.h>
 #include <time.h>
+#include <sys/time.h>
 #include <float.h>
 
 //! TODO
+//! code panic funtion for check_argv
+//? use EXIT_FAILURE and EXIT_SUCCESS in exit
 // clean all, cut into smaller functions
 // if (bytes_sent == 0 or it block what do i do, just pack_lost++ and continue, this can lead to an infinite loop
 // // add control + c signal catch
@@ -21,6 +24,7 @@
     // Maybe add -W (SO_RCVTIMEO) its the timeout time in recvmsg, -w is the max time ping before exiting, or if -c is done - no idea how to implement that
     // if -W 2 ping will wait 2 seconds if the packet doesnt arrive back before sending the next interval (-c or 1 second if no option)
     // recv from socket with timeout? //! for now if we dont receive the info it just stays locked there in the recv line -> ping waits 10 seconds then says packet lost? ineutils says it waits forever... need to check
+    // maybe add -q? seems ez
 
 // // find a way to know if i need to do a dns lookup or not. add dns_lookup -> maybe parse if ip is 255.255.255.255 (char.char.char.char)
 // find a way to simulate errors and try them with ./ping ping and ft_ping
@@ -38,6 +42,10 @@
 //! what do i do with sendto, does it block if wrong ip? if it does find a way for it to have a timeout and not block, same for recvmsg
 
 // ! format of ping ineutils 2.0 -> only diff is id 0x81e7 = 33255
+// print verbose -> 
+// printf ("PING %s (%s): %zu data bytes",
+    // if (options & OPT_VERBOSE)
+    // printf (", id 0x%04x = %u", ping->ping_ident, ping->ping_ident);
 // //  missing the dns lookup in case of domain
 // // print after each ping in the correct format (check if -v format changes)
 // // add math of statistics --> 2 packets transmitted, 2 packets received, 0% packet loss - round-trip min/avg/max/stddev = 2.244/3.556/4.867/1.312 ms
@@ -245,7 +253,7 @@ void send_ping(int sockfd, const char *dest) {
         long elapsed_micros = (end.tv_sec - start.tv_sec) * 1000000LL + 
                      (end.tv_nsec - start.tv_nsec) / 1000;
         update_stats(&stats, elapsed_micros);
-
+        //? if (!ping_data->quiet) -> print next line, ezzz
         printf("64 bytes from %s: icmp_seq=%d ttl=%u time=%ld.%03ld ms\n", dest, seq, ttl, elapsed_micros / 1000, elapsed_micros % 1000);
         usleep(1000000); //? here can change to add bonus of -i and -w //! min is -i 0.2 less print error!
     }
@@ -258,129 +266,199 @@ void send_ping(int sockfd, const char *dest) {
 
 void sigint_handler(int signal)
 {
-    if (signal == SIGINT) {
+    if (signal == SIGINT)
+    {
         stop = 0;
     }
 }
 
 void set_signal_action(void)
 {
-    struct sigaction act = {0}; 
-    act.sa_handler = &sigint_handler;
-    sigaction(SIGINT, &act, NULL);
+    signal(SIGINT, sigint_handler); // Set the signal handler
 }
 
 //! add icmp or not?
 typedef struct s_ping
 {
     // int icmp_data;
+    int id; //! add random id at init
     int sockfd;
     char *ip_argv;
-    char ip_number[INET_ADDRSTRLEN];
+    char ip_address[INET_ADDRSTRLEN];
     struct sockaddr_in dest_addr;
+
+    //? maybe add flags in another struct?
+    //? add quiet?
 
     // flags
     int verbose;
     
     // bonus flags
-    int ttl; // > 0
-    int count; // >= 0
-    int interval; // > 0.2
+    int ttl; // 256 > ttl > 0
+    int count; // >= 0 // 0 infinite
+    double interval; // > 0.2
     int recv_timeout; // > 0
 } t_ping;
 
-int check_int(char *str)
+//! code panic funtion for check_argv
+void panic_argv(const char *format, const char *var)
 {
-    char *endptr;
-    int num = (int)strtol(str, &endptr, 10);
-
-    if (endptr == str || *endptr != '\0')
-    {
-        fprintf(stderr, "ft_ping: invalid value (`%s' near `%s')\n", str, endptr);
-        exit(1);
-    }
-    // printf("The number is: %d\n", num);
-    return num;
+    fprintf(stderr, format, var);
+    fprintf(stderr, "Try 'ft_ping --help' or 'ping --usage' for more information.\n");
+    exit(EXIT_FAILURE);
 }
 
-void check_bonus_argv(int *bonus_arg, int i, int argc, char *argv[])
+//! modify this one to work with
+double check_bonus_argv_double(int *i, int argc, char *argv[])
 {
-    if (i + 1 < argc)
+    if (*i + 1 < argc)
     {
-        int ttl_value = check_int(argv[i + 1]);
-        if (ttl_value < 0)
+        char *endptr;
+        char *str = argv[*i + 1];
+        double num = strtod(str, &endptr);
+
+        if (endptr == str || *endptr != '\0')
         {
-            fprintf(stderr, "TTL value must be non-negative.\n");
-            exit(1);
+            fprintf(stderr, "ft_ping: invalid value (`%s' near `%s')\n", str, endptr);
+            exit(EXIT_FAILURE);
         }
-        *bonus_arg = ttl_value;
-        i++;
+        (*i)++;
+        return num;
     }
-    else
+    if (argv[*i][1] == '-')
     {
-        fprintf(stderr, "Error: --ttl requires an argument.\n");
-        exit(1);
-        // return 1;
+        panic_argv("ft_ping: option '%s' requires an argument\n", argv[*i]);
     }
+    panic_argv("ft_ping: option requires an argument -- '%s'\n", (char[]){argv[*i][1], '\0'});
+    exit(EXIT_FAILURE);
 }
 
-#include <unistd.h>
+int check_bonus_argv_int(int *i, int argc, char *argv[])
+{
+    if (*i + 1 < argc)
+    {
+        char *endptr;
+        char *str = argv[*i + 1];
+        int num = (int)strtol(str, &endptr, 10);
+
+        if (endptr == str || *endptr != '\0')
+        {
+            fprintf(stderr, "ft_ping: invalid value (`%s' near `%s')\n", str, endptr);
+            exit(EXIT_FAILURE);
+        }
+        (*i)++;
+        return num;
+    }
+    if (argv[*i][1] == '-')
+    {
+        panic_argv("ft_ping: option '%s' requires an argument\n", argv[*i]);
+    }
+    panic_argv("ft_ping: option requires an argument -- '%s'\n", (char[]){argv[*i][1], '\0'});
+    exit(EXIT_FAILURE);
+}
 
 //! change return type etc
+//? use EXIT_FAILURE
 // fix bonus arg values :
-    // int ttl; // > 0
+    // int ttl; // 256 > ttl > 0
     // int count; // >= 0
-    // int interval; // > 0.2
+    // int interval; // > 0.2 -> ./ping: option value too small: 0.1
     // int recv_timeout; // > 0
 int check_argv(t_ping *ping_data, int argc, char *argv[])
 {
-    (void) ping_data;
+    double interval = 0.0;
+    int flag_val = 0;
     for (int i = 1; i < argc; i++)
     {
-        if (!strcmp(argv[i], "-?"))
+        if (argv[i][0] == '-')
         {
-            printf("print usage info of pingu\n");
-            // break;
-            exit(1);
+            if (!strcmp(argv[i], "-?") || !strcmp(argv[i], "--help") || !strcmp(argv[i], "--usage"))
+            {
+                printf("print usage info of pingu\n");
+                exit(EXIT_FAILURE);
+            }
+            else if (!strcmp(argv[i], "-v"))
+            {
+                // add id 0x81e7 = 33255
+                ping_data->verbose = 1;
+            }
+            else if (!strcmp(argv[i], "--ttl")) // && i + 1 < argc)
+            {
+                // change IP_RECVTTL
+                flag_val = check_bonus_argv_int(&i, argc, argv);
+                if (flag_val <= 0 || flag_val >= 256)
+                {
+                    fprintf(stderr, "ft_ping: invalid value must be more than 0 and less than 256\n");
+                    exit(EXIT_FAILURE);
+                }
+                ping_data->ttl = flag_val;
+            }
+            else if (!strcmp(argv[i], "-c"))
+            {
+                // count till -c then exit
+                flag_val = check_bonus_argv_int(&i, argc, argv);
+                if (flag_val < 0)
+                {
+                    fprintf(stderr, "ft_ping: invalid value must be non-negative\n");
+                    exit(EXIT_FAILURE);
+                }
+                ping_data->count = flag_val;
+            }
+            else if (!strcmp(argv[i], "-i"))
+            {
+                // change usleep
+                interval = check_bonus_argv_double(&i, argc, argv);
+                if (interval < 0.2)
+                {
+                    fprintf(stderr, "ft_ping: invalid value must be more than 0.2\n");
+                    exit(EXIT_FAILURE);
+                }
+                ping_data->interval = interval;
+            }
+            else if (!strcmp(argv[i], "-W"))
+            {
+                // change SO_RCVTIMEO
+                flag_val = check_bonus_argv_int(&i, argc, argv);
+                if (flag_val < 0)
+                {
+                    fprintf(stderr, "ft_ping: invalid value must be more than 0\n");
+                    exit(EXIT_FAILURE);
+                }
+                ping_data->recv_timeout = flag_val;
+            }
+            else
+            {
+                if (argv[i][1] == '-')
+                {
+                    panic_argv("ft_ping: unrecognized option '%s'\n", argv[i]);
+                }
+                panic_argv("ft_ping: invalid option -- '%s'\n", (char[]){argv[i][1], '\0'});
+            }
         }
-        else if (!strcmp(argv[i], "-v"))
-        {
-            // add id 0x81e7 = 33255
-            ping_data->verbose = 1;
-        }
-        else if (!strcmp(argv[i], "--ttl"))
-        {
-            // change IP_RECVTTL
-            check_bonus_argv(&ping_data->ttl, i, argc, argv);
-        }
-        else if (!strcmp(argv[i], "-c"))
-        {
-            // count till -c then exit
-            check_bonus_argv(&ping_data->count, i, argc, argv);
-        }
-        else if (!strcmp(argv[i], "-i"))
-        {
-            // change usleep
-            check_bonus_argv(&ping_data->interval, i, argc, argv);
-        }
-        else if (!strcmp(argv[i], "-W"))
-        {
-            // change SO_RCVTIMEO
-            check_bonus_argv(&ping_data->recv_timeout, i, argc, argv);
-        }
-        //! add to get the ip too X)
         //! else: if is ip add ip to struct, ip can be a whole number | 255.255.255.255 | domain.com else print wrong flag
-        // else if (!strcmp(argv[i], "-W"))
-        // {
-        //     // change SO_RCVTIMEO
-        // }
-
+        //! for now if its any other data other than ip and my args its an error, normal ping ignores data after ip if its not -
+        else
+        {
+            //! ping: missing host operand
+            if (!ping_data->ip_argv)
+            {
+                ping_data->ip_argv = argv[i];
+                // printf("received ip: %s\n", ping_data->ip_argv); //! remove me
+            }
+        }
+    }
+    if (!ping_data->ip_argv)
+    {
+        panic_argv("ft_ping: missing host operand\n", "");
     }
     return 1;
 }
 
-#include <arpa/inet.h>
-#include <netdb.h>
+void set_timeval(struct timeval *tval, double time_in_seconds)
+{
+    tval->tv_sec = (int)time_in_seconds;
+    tval->tv_usec = (int)((time_in_seconds - tval->tv_sec) * 1000000);
+}
 
 int main(int argc, char *argv[])
 {
@@ -389,17 +467,25 @@ int main(int argc, char *argv[])
     t_ping ping_data = {0};
     ping_data.ttl = 64;
     ping_data.count = 0; //! how to do this infinite? INFINITE?
-    ping_data.interval = 1;
+    ping_data.interval = 1.0;
     ping_data.recv_timeout = 1;
     check_argv(&ping_data, argc, argv);
-    printf("received argv v %d ttl %d c %d i %d W %d\n ", ping_data.verbose, ping_data.ttl, ping_data.count, ping_data.interval, ping_data.recv_timeout);
+    printf("received argv v %d ttl %d c %d i %0.3f W %d\n", ping_data.verbose, ping_data.ttl, ping_data.count, ping_data.interval, ping_data.recv_timeout);
     set_signal_action();
+
+    //! use select instead of usleep if c99
+    struct timeval wait;
+    // wait.tv_sec = 0;
+    // wait.tv_usec = 500000;
+    set_timeval(&wait, ping_data.interval);
+    select(0, NULL, NULL, NULL, &wait);
 
     //? change this into its own function, like socket_init
     // this to init_socket
     int sockfd;
     int ttl_val = 64;
     sockfd = socket(AF_INET, SOCK_DGRAM, IPPROTO_ICMP);
+    ping_data.sockfd = sockfd;
     if (sockfd < 0) {
 
         printf("\nSocket file descriptor not received!\n");
@@ -415,9 +501,8 @@ int main(int argc, char *argv[])
         return 1;
     }
 
-    struct timeval tv = {
-        .tv_sec = 1 //! this is -W option
-    };
+    struct timeval tv;
+    set_timeval(&tv, ping_data.recv_timeout);
     //? timeout bonus -W?
     setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tv, sizeof tv);
 
@@ -428,46 +513,66 @@ int main(int argc, char *argv[])
     */
 
     //? do i use this? i shouldnt be doing a dns lookup for an ip!!! so nope
-    struct addrinfo hints = {0}; // Hints or "filters" for getaddrinfo()
-    struct addrinfo *res;
-    // struct addrinfo *r;    // Pointer to iterate on results
-    // char ip_buffer[INET_ADDRSTRLEN];
+    // struct addrinfo hints = {0}; // Hints or "filters" for getaddrinfo()
+    // struct addrinfo *res;
+    // // struct addrinfo *r;    // Pointer to iterate on results
+    // // char ip_buffer[INET_ADDRSTRLEN];
 
-    hints.ai_family = AF_INET;
-    hints.ai_socktype = SOCK_DGRAM;
+    // hints.ai_family = AF_INET;
+    // hints.ai_socktype = SOCK_DGRAM;
 
-    int status = getaddrinfo(argv[1], 0, &hints, &res);
-    if (status != 0) {
-        fprintf(stderr, "ft_ping: %s\n", gai_strerror(status));
-        return (2); //! if wrong domain or ip fails here, change this to correct output
-    }
-
-    // r = res;
-    // while (r != NULL) {
-    //     // void *addr; // Pointer to IP address
-    //     if (r->ai_family == AF_INET) { // IPv4
-    //         // we need to cast the address as a sockaddr_in structure to
-    //         // get the IP address, since ai_addr might be either
-    //         // sockaddr_in (IPv4) or sockaddr_in6 (IPv6)
-    //         struct sockaddr_in *ipv4 = (struct sockaddr_in *)r->ai_addr;
-    //         // Convert the integer into a legible IP address string
-    //         inet_ntop(r->ai_family, &(ipv4->sin_addr), ip_buffer, sizeof ip_buffer);
-    //         // printf("IPv4: %s\n", r->ai_canonname);
-    //     }
-    //     r = r->ai_next; // Next address in getaddrinfo()'s results
+    // //! gethostbyname
+    // int status = getaddrinfo(ping_data.ip_argv, 0, &hints, &res);
+    // if (status != 0) {
+    //     fprintf(stderr, "ft_ping: %s\n", gai_strerror(status));
+    //     return (2); //! if wrong domain or ip fails here, change this to correct output
     // }
 
-    struct sockaddr_in dest_addr;
-    struct sockaddr_in *addr_in = (struct sockaddr_in *)res->ai_addr;
-    dest_addr.sin_addr = addr_in->sin_addr;
+    // // r = res;
+    // // while (r != NULL) {
+    // //     // void *addr; // Pointer to IP address
+    // //     if (r->ai_family == AF_INET) { // IPv4
+    // //         // we need to cast the address as a sockaddr_in structure to
+    // //         // get the IP address, since ai_addr might be either
+    // //         // sockaddr_in (IPv4) or sockaddr_in6 (IPv6)
+    // //         struct sockaddr_in *ipv4 = (struct sockaddr_in *)r->ai_addr;
+    // //         // Convert the integer into a legible IP address string
+    // //         inet_ntop(r->ai_family, &(ipv4->sin_addr), ip_buffer, sizeof ip_buffer);
+    // //         // printf("IPv4: %s\n", r->ai_canonname);
+    // //     }
+    // //     r = r->ai_next; // Next address in getaddrinfo()'s results
+    // // }
 
-    char ip_str[INET_ADDRSTRLEN];
-    inet_ntop(AF_INET, &dest_addr.sin_addr, ip_str, sizeof(ip_str));
-    // printf("Resolved IP: %s\n", ip_str);
-    freeaddrinfo(res);
+    // struct sockaddr_in dest_addr;
+    // struct sockaddr_in *addr_in = (struct sockaddr_in *)res->ai_addr;
+    // dest_addr.sin_addr = addr_in->sin_addr;
+
+    // // char ip_str[INET_ADDRSTRLEN];
+    // inet_ntop(AF_INET, &dest_addr.sin_addr, ping_data.ip_address, sizeof(ping_data.ip_address));
+    // // printf("Resolved IP: %s\n", ip_str);
+    // freeaddrinfo(res);
+
+    struct hostent *host;
+
+    host = gethostbyname(ping_data.ip_argv); // Resolve hostname
+    if (host == NULL) {
+        fprintf(stderr, "ft_ping: Unknown host %s\n", ping_data.ip_argv);
+        return (1); //or exit failure? its same but more explicit...
+    }
+
+    ping_data.dest_addr.sin_family = AF_INET;
+    memcpy(&ping_data.dest_addr.sin_addr, host->h_addr_list[0], host->h_length);
+
+    inet_ntop(AF_INET, &ping_data.dest_addr.sin_addr, ping_data.ip_address, sizeof(ping_data.ip_address));
+
+    printf("Resolved IP: %s\n", ping_data.ip_address);
 
     // PING 192.168.1.99 (192.168.1.99): 56 data bytes //? this should be printed like this! and add id if its -v
-    printf("PING %s (%s): 56 data bytes\n", argv[1], ip_str); //! add id = 0x4242 if option -v
-    send_ping(sockfd, ip_str);
+    printf("PING %s (%s): 56 data bytes", ping_data.ip_argv, ping_data.ip_address); //! add id = 0x4242 if option -v
+    if (ping_data.verbose == 1) {
+        printf (", id 0x%04x = %u", ping_data.id, ping_data.id);
+    }
+    printf("\n");
+    send_ping(sockfd, ping_data.ip_address);
     return 0;
 }
