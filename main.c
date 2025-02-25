@@ -15,9 +15,13 @@
 // #include <limits.h> //! add my own limits with define
 
 //! TODO
+//! add real printf of usage of ping! printf("print usage info of pingu\n");
 // // code panic funtion for check_argv
 //! code my own sqrt
+//! put all printfs possible into send_ping or print stats, no weird mix between main send_ping etc
 //! change t_ping_stats and s_ping to normal struct and merge them
+//! its 3 diff unique things, and seq goes ++ each time
+    //! recvmsg needs to check if id == id, icmp_seq ==, echo_reply i sent
 // // use EXIT_FAILURE and EXIT_SUCCESS in exit
 // clean all, cut into smaller functions
 // // if (bytes_sent == 0 or it block what do i do, just pack_lost++ and continue, this can lead to an infinite loop
@@ -587,7 +591,7 @@ int main(int argc, char *argv[])
 
     //? timeout bonus -W?
     struct timeval tv = {.tv_sec = ping_data.flags.recv_timeout};
-    if (setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tv, sizeof tv) < 0)
+    if (setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tv, sizeof(tv)) < 0)
     {
         // printf("\nSetting socket options of linger failed\n");
         // return 1;
@@ -619,6 +623,40 @@ int main(int argc, char *argv[])
         printf (", id 0x%04x = %u", ping_data.id, ping_data.id);
     }
     printf("\n");
-    send_ping(&ping_data);
+    // send_ping(&ping_data);
+
+    //! erase from here 
+
+    // char *str = "-c 10";
+    // char *str = "-c10";
+    // "-c" // wrong
+    // "-caaaa" // wrong
+    // "-c 10" // correct
+    // "-c10" // correct
+    // "-c" "10" // correct
+    const char *strs[] = {
+        "-z", // wrong
+        "-c",     // wrong
+        "-caaaa", // wrong
+        "-c 10",  // correct
+        "-c10",   // correct
+         "-c ", "10" // correct
+    };
+    for (size_t i = 0; i < 5; i++)
+    {
+        char *result = strstr(strs[i], "-c");
+        if (result != NULL) {
+            int position = result - strs[i];
+            int substringLength = strlen(strs[i]) - position;
+            printf("i %ld pos %d sub %d %s\n", i, position, substringLength, strs[i]);
+        }
+    }
+    //! to test case 6 - 7 later
+    // {
+    //     char *result = strstr(strs[i], "-c");
+    //     int position = result - strs[i];
+    //     int substringLength = strlen(strs[i]) - position;
+    //     printf("pos %d sub %d %s\n", position, substringLength, strs[i]);
+    // }
     return 0;
 }
