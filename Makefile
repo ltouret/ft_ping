@@ -19,7 +19,7 @@ OBJS = ${SRCS:.c=.o}
 CC		= cc
 RM		= rm -f
 
-CFLAGS = -Wall -Wextra -Werror
+CFLAGS = -Wall -Wextra -Werror -std=c99
 
 .c.o:
 		${CC} ${CFLAGS} -c $< -o ${<:.c=.o}
@@ -29,7 +29,8 @@ $(NAME): ${OBJS}
 
 all:	${NAME}
 
-clean:	${RM} ${OBJS}
+clean:
+		${RM} ${OBJS}
 
 fclean:	clean
 		${RM} ${NAME}

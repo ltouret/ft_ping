@@ -1,24 +1,26 @@
 #include <stdio.h>
-#include <sys/socket.h>
+// #include <sys/socket.h>
 // #include <netinet/in.h> //?
 #include <stdlib.h>
 #include <unistd.h> //? this needed now
 #include <arpa/inet.h>
 #include <string.h>
-#include <netinet/ip_icmp.h>
+// #include <netinet/ip_icmp.h>
 // #include <netinet/ip.h> //?
-#include <netdb.h> //?
+#include <netdb.h>
 #include <signal.h>
 #include <time.h>
 #include <sys/time.h>
 // #include <float.h>
-#include <limits.h> //! add my own limits with define
+// #include <limits.h> //! add my own limits with define
 
 //! TODO
-//! code panic funtion for check_argv
-//? use EXIT_FAILURE and EXIT_SUCCESS in exit
+// // code panic funtion for check_argv
+//! code my own sqrt
+//! change t_ping_stats and s_ping to normal struct and merge them
+// // use EXIT_FAILURE and EXIT_SUCCESS in exit
 // clean all, cut into smaller functions
-// if (bytes_sent == 0 or it block what do i do, just pack_lost++ and continue, this can lead to an infinite loop
+// // if (bytes_sent == 0 or it block what do i do, just pack_lost++ and continue, this can lead to an infinite loop
 // // add control + c signal catch
 // add argv parsing
     // add argv -? -v and bonus -ttl -c -i for intervals.
@@ -37,7 +39,7 @@
     // easter egg in data padding of 64 bytes?
 // // calculate time between sendto and recvfrom and print it
 // // retrieve ttl from ip packet, how??
-// // ping 3232235777 should work for now doesnt --> output -v PING 3232235777 (192.168.1.1): 56 data bytes (add the ip)
+//? ping 3232235777 should work for now doesnt --> output -v PING 3232235777 (192.168.1.1): 56 data bytes (add the ip)
 //! for now if ping 127.0.0.1 does work i dont receive the same message i sent. check later
 //// uint16_t seq = 0; //? for ./ping work froms 0 check in real debian - local machine starts from 1...
 //! what do i do with sendto, does it block if wrong ip? if it does find a way for it to have a timeout and not block, same for recvmsg
@@ -77,6 +79,29 @@
 
 uint8_t stop = 1; // char for the lulz?
 
+typedef struct s_ping_stats
+{
+    long        sum;
+    long long   sum_sq;
+    long        min;
+    long        max;
+    long        packets_sent;
+    long        packets_lost;
+} t_ping_stats;
+
+struct argv_flags
+{
+    // flags
+    unsigned int verbose : 1; // 0 or 1
+    
+    // bonus flags
+    double interval; // > 0.2
+    uint8_t ttl; // 256 > ttl > 0 ! max 255 so char
+    unsigned int count; // >= 0 // 0 infinite
+    unsigned int quiet : 1; // 0 or 1
+    unsigned int recv_timeout; // > 0
+};
+
 //! add icmp or not?
 typedef struct s_ping
 {
@@ -87,26 +112,40 @@ typedef struct s_ping
     char ip_address[INET_ADDRSTRLEN];
     struct sockaddr_in dest_addr;
 
-    // flags
-    unsigned int verbose : 1; // 0 or 1
+    struct argv_flags flags;
+    // // flags
+    // unsigned int verbose : 1; // 0 or 1
     
-    // bonus flags
-    unsigned int quiet : 1; // 0 or 1
-    uint8_t ttl; // 256 > ttl > 0 ! max 255 so char
-    unsigned int count; // >= 0 // 0 infinite
-    double interval; // > 0.2
-    unsigned int recv_timeout; // > 0
+    // // bonus flags
+    // unsigned int quiet : 1; // 0 or 1
+    // uint8_t ttl; // 256 > ttl > 0 ! max 255 so char
+    // unsigned int count; // >= 0 // 0 infinite
+    // double interval; // > 0.2
+    // unsigned int recv_timeout; // > 0
 } t_ping;
 
-//! change data types can be more efficent
-typedef struct s_ping_stats{
-    long sum;
-    long long sum_sq;
-    long min;
-    long max;
-    long packets_sent;
-    long packets_lost;
-} t_ping_stats;
+#define ICMP_ECHO	8
+#define LONG_MAX    9223372036854775807
+#define INT_MAX     2147483647
+
+struct icmp
+{
+    //? header 22 bytes
+    uint8_t     icmp_type;
+    uint8_t     icmp_code;
+    uint16_t    icmp_cksum; // padding
+    uint16_t    icmp_id;
+    uint16_t    icmp_seq;
+    uint32_t    icmp_otime;
+    uint32_t    icmp_rtime; // padding
+    uint32_t    icmp_ttime;
+
+    //? padding
+    uint32_t    padding; //? this or data 44 and skip 4 first
+
+    //? data 40 bytes
+    uint8_t     data[40];
+};
 
 void update_stats(t_ping_stats *stats, long elapsed_micros) {
     stats->sum += elapsed_micros;
@@ -180,12 +219,6 @@ void send_ping(t_ping *ping_data) {
     t_ping_stats stats = {0};
     stats.min = LONG_MAX;
 
-    //? easter egg with data
-    //! make my own typedef with icmp + padding char[36] -> with random or easter egg data?
-    char payload[64] = {0};
-    struct icmp *icmp = (struct icmp *)(&payload);
-    // memset(&payload, 0, sizeof(struct icmp)); //! needed if not payload {0}
-    uint16_t seq = 0; //? for ./ping work froms 0 check in real debian
 
     // ! stats - var to track lost packets -> add counter for total packets and for -c, reset seq to 0 after max uint16_t 65k
     //? maybe add all of this in struct stats?
@@ -193,12 +226,27 @@ void send_ping(t_ping *ping_data) {
     uint8_t ttl; //? is there a way i can remove this? or add to stats struct?
     unsigned int counter = 0;
 
-    icmp->icmp_type = ICMP_ECHO;
-    icmp->icmp_code = 0;
-    icmp->icmp_id = ping_data->id; // done by the kernel so idc, adding for the !lulz //! 4242
+    //? easter egg with data
+    //! make my own typedef with icmp + padding char[40] -> with random or easter egg data?
+    struct icmp icmp = {
+        .data = {
+            // ? padding
+            // 0x00, 0x00, 0x00, 0x00,
+            //? debug data
+            0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
+            0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f,
+            0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17,
+            0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f,
+            0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27
+        }
+    };
+    uint16_t seq = 0; //? for ./ping work froms 0 check in real debian
+    icmp.icmp_type = ICMP_ECHO;
+    icmp.icmp_code = 0;
+    icmp.icmp_id = ping_data->id; // done by the kernel so idc, adding for the !lulz //! 4242
     // icmp->icmp_seq = htons(++seq); //? change this
 
-    // printf("id = %x\n", icmp->icmp_id); //! -v id 0x4242 = 16962
+    // printf("id = %ld\n", sizeof(icmp)); //! -v id 0x4242 = 16962
 
     //! all the msg shit doesnt need to be in the loop, only created once!
     char buffer[64] = {0};
@@ -224,9 +272,9 @@ void send_ping(t_ping *ping_data) {
     // set_timeval(&interval, ping_data->interval);
 
     //! while stop = 1 or if -c --> i < c or -w close when time is over
-    while (stop && (ping_data->count == 0 || counter < ping_data->count)) {
+    while (stop && (ping_data->flags.count == 0 || counter < ping_data->flags.count)) {
         //! seq is wrong order for some reason its 01 00 instead of 00 01 bytes
-        icmp->icmp_seq = htons(++seq); //? change this
+        icmp.icmp_seq = htons(++seq); //? change this
 
         // clock_gettime(CLOCK_REALTIME, &ts);
         // struct timeval start1, end1;
@@ -234,15 +282,15 @@ void send_ping(t_ping *ping_data) {
         gettimeofday(&start, NULL);
 
         //! do i need to typecast?
-        icmp->icmp_otime = (uint32_t)start.tv_sec;
-        icmp->icmp_ttime = ((uint32_t)start.tv_usec);
+        icmp.icmp_otime = (uint32_t)start.tv_sec;
+        icmp.icmp_ttime = (uint32_t)start.tv_usec;
 
         // printf("%d %d\n", icmp->icmp_otime, icmp->icmp_ttime);
 
         // clock_gettime(CLOCK_MONOTONIC, &start);
         gettimeofday(&start, NULL);
         //! what do i do with sendto, does it block if wrong ip? if it does find a way for it to have a timeout and not block, same for recvmsg
-        ssize_t bytes_sent = sendto(ping_data->sockfd, payload, sizeof(payload), 0,
+        ssize_t bytes_sent = sendto(ping_data->sockfd, &icmp, sizeof(icmp), 0,
                                 (struct sockaddr*)&ping_data->dest_addr, sizeof(ping_data->dest_addr));
         // stats.packets_sent++; //? what order do i add this?
         //? packets_lost++? what do i do here? just quit bc its broken? -> for now if it breaks its an infinite loop, maybe quit
@@ -278,7 +326,7 @@ void send_ping(t_ping *ping_data) {
         }
 
         // to print data in buffers
-        // for (int i = 0; i < 20; i++) {
+        // for (int i = 0; i < 64; i++) {
         //     printf("i: %d -- buff %x | control %x\n", i, (unsigned char) buffer[i], (unsigned char) control[i]);
         // }
 
@@ -300,14 +348,14 @@ void send_ping(t_ping *ping_data) {
         long elapsed_micros = (end.tv_sec - start.tv_sec) * 1000000L + end.tv_usec - start.tv_usec;
         // printf("elapsed_micros %ld\n", elapsed_micros);
         update_stats(&stats, elapsed_micros);
-        if (!ping_data->quiet) // -> print next line, ezzz
+        if (!ping_data->flags.quiet) // -> print next line, ezzz
         {
             printf("64 bytes from %s: icmp_seq=%d ttl=%u time=%ld.%03ld ms\n", ping_data->ip_address, seq, ttl, elapsed_micros / 1000, elapsed_micros % 1000);
         }
         counter++;
         // usleep(1000000); //? here can change to add bonus of -i and -w //! min is -i 0.2 less print error!
         //! use select instead of usleep if c99
-        set_timeval(&interval, ping_data->interval);
+        set_timeval(&interval, ping_data->flags.interval);
         select(0, NULL, NULL, NULL, &interval);
     }
 
@@ -327,7 +375,7 @@ void sigint_handler(int signal)
 
 void set_signal_action(void)
 {
-    signal(SIGINT, sigint_handler); // Set the signal handler
+    signal(SIGINT, sigint_handler);
 }
 
 //! code panic funtion for check_argv
@@ -395,6 +443,7 @@ int check_bonus_argv_int(int *i, int argc, char *argv[])
     // int recv_timeout; // > 0
 void check_argv(t_ping *ping_data, int argc, char *argv[])
 {
+    //! -c10 -W1 -i1 this doesnt work...
     double interval = 0.0;
     int flag_val = 0;
     for (int i = 1; i < argc; i++)
@@ -409,12 +458,12 @@ void check_argv(t_ping *ping_data, int argc, char *argv[])
             else if (!strcmp(argv[i], "-v"))
             {
                 // add id 0x81e7 = 33255
-                ping_data->verbose = 1;
+                ping_data->flags.verbose = 1;
             }
             else if (!strcmp(argv[i], "-q"))
             {
                 // remove print 64 bytes from 192.168.1.1: icmp_seq=0 ttl=2 time=4.867 ms
-                ping_data->quiet = 1;
+                ping_data->flags.quiet = 1;
             }
             else if (!strcmp(argv[i], "--ttl")) // && i + 1 < argc)
             {
@@ -425,7 +474,7 @@ void check_argv(t_ping *ping_data, int argc, char *argv[])
                     fprintf(stderr, "ft_ping: invalid value must be more than 0 and less than 256\n");
                     exit(EXIT_FAILURE);
                 }
-                ping_data->ttl = flag_val;
+                ping_data->flags.ttl = flag_val;
             }
             else if (!strcmp(argv[i], "-c"))
             {
@@ -436,7 +485,7 @@ void check_argv(t_ping *ping_data, int argc, char *argv[])
                     fprintf(stderr, "ft_ping: invalid value must be non-negative\n");
                     exit(EXIT_FAILURE);
                 }
-                ping_data->count = (uint8_t)flag_val;
+                ping_data->flags.count = (uint8_t)flag_val;
             }
             else if (!strcmp(argv[i], "-i"))
             {
@@ -447,7 +496,7 @@ void check_argv(t_ping *ping_data, int argc, char *argv[])
                     fprintf(stderr, "ft_ping: invalid value must be more than 0.2\n");
                     exit(EXIT_FAILURE);
                 }
-                ping_data->interval = interval;
+                ping_data->flags.interval = interval;
             }
             else if (!strcmp(argv[i], "-W"))
             {
@@ -458,7 +507,7 @@ void check_argv(t_ping *ping_data, int argc, char *argv[])
                     fprintf(stderr, "ft_ping: invalid value must be more than 0\n");
                     exit(EXIT_FAILURE);
                 }
-                ping_data->recv_timeout = flag_val;
+                ping_data->flags.recv_timeout = flag_val;
             }
             else
             {
@@ -493,17 +542,18 @@ int main(int argc, char *argv[])
     //! argv into its own function, check if argv are correct!
     // move this to init()
     t_ping ping_data = {0};
-    //! if -v this!
-    if (ping_data.verbose) {
+    //! if -v this?
+    // if (ping_data.verbose)
+    {
         srand(time(NULL));
         ping_data.id =  rand() % 65535;
     }
-    ping_data.ttl = 64;
+    ping_data.flags.ttl = 64;
     // ping_data.count = 0;
-    ping_data.interval = 1.0;
-    ping_data.recv_timeout = 1;
+    ping_data.flags.interval = 1.0;
+    ping_data.flags.recv_timeout = 1;
     check_argv(&ping_data, argc, argv);
-    printf("received argv v %d ttl %d c %d i %0.3f W %d\n", ping_data.verbose, ping_data.ttl, ping_data.count, ping_data.interval, ping_data.recv_timeout);
+    printf("received argv v %d ttl %d c %d i %0.3f W %d\n", ping_data.flags.verbose, ping_data.flags.ttl, ping_data.flags.count, ping_data.flags.interval, ping_data.flags.recv_timeout);
     set_signal_action();
 
     //? change this into its own function, like socket_init
@@ -511,34 +561,48 @@ int main(int argc, char *argv[])
     int sockfd;
     // int ttl_val = 64;
     sockfd = socket(AF_INET, SOCK_DGRAM, IPPROTO_ICMP);
-    ping_data.sockfd = sockfd;
-    if (sockfd < 0) {
-
-        printf("\nSocket file descriptor not received!\n");
-        return 1;
+    if (sockfd < 0)
+    {
+        // printf("\nSocket file descriptor not received!\n");
+        // return 1;
+        fprintf(stderr, "ft_ping: Socket file descriptor not received\n");
+        exit(EXIT_FAILURE);
     }
-    if (setsockopt(sockfd, SOL_IP, IP_TTL, &ping_data.ttl, sizeof(ping_data.ttl)) != 0) {
-        printf("\nSetting socket options to TTL failed!\n");
-        return 1;
+    if (setsockopt(sockfd, SOL_IP, IP_TTL, &ping_data.flags.ttl, sizeof(ping_data.flags.ttl)) != 0)
+    {
+        // printf("\nSetting socket options to TTL failed!\n");
+        // return 1;
+        fprintf(stderr, "ft_ping: Setting socket options of TTL failed\n");
+        exit(EXIT_FAILURE);
+
     }
     int optval = 1; //? can i change this?
-    if (setsockopt(sockfd, IPPROTO_IP, IP_RECVTTL, &optval, sizeof(optval)) < 0) {
-        printf("\nSetting socket options to receive TTL failed!\n");
-        return 1;
+    if (setsockopt(sockfd, IPPROTO_IP, IP_RECVTTL, &optval, sizeof(optval)) < 0)
+    {
+        // printf("\nSetting socket options of linger failed\n");
+        // return 1;
+        fprintf(stderr, "ft_ping: Setting socket options to receive TTL failed\n");
+        exit(EXIT_FAILURE);
     }
 
-    struct timeval tv = {.tv_sec = ping_data.recv_timeout};
-    // set_timeval(&tv, ping_data.recv_timeout);
-    // printf("time %ld\n", tv.tv_sec);
     //? timeout bonus -W?
-    setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tv, sizeof tv);
+    struct timeval tv = {.tv_sec = ping_data.flags.recv_timeout};
+    if (setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tv, sizeof tv) < 0)
+    {
+        // printf("\nSetting socket options of linger failed\n");
+        // return 1;
+        fprintf(stderr, "ft_ping: Setting socket options of linger failed\n");
+        exit(EXIT_FAILURE);
+    }
+    ping_data.sockfd = sockfd;
+
 
     //! dns check
-    struct hostent *host;
-    host = gethostbyname(ping_data.ip_argv); // Resolve hostname
+    struct hostent *host = gethostbyname(ping_data.ip_argv); // Resolve hostname
     if (host == NULL) {
         fprintf(stderr, "ft_ping: Unknown host %s\n", ping_data.ip_argv);
-        return (1); //or exit failure? its same but more explicit...
+        exit(EXIT_FAILURE);
+        // return (1); //or exit failure? its same but more explicit...
     }
 
     ping_data.dest_addr.sin_family = AF_INET;
@@ -546,11 +610,11 @@ int main(int argc, char *argv[])
 
     inet_ntop(AF_INET, &ping_data.dest_addr.sin_addr, ping_data.ip_address, sizeof(ping_data.ip_address));
 
-    printf("Resolved IP: %s\n", ping_data.ip_address);
+    // printf("Resolved IP: %s\n", ping_data.ip_address);
 
     // PING 192.168.1.99 (192.168.1.99): 56 data bytes //? this should be printed like this! and add id if its -v
     printf("PING %s (%s): 56 data bytes", ping_data.ip_argv, ping_data.ip_address); //! add id = 0x4242 if option -v
-    if (ping_data.verbose == 1)
+    if (ping_data.flags.verbose)
     {
         printf (", id 0x%04x = %u", ping_data.id, ping_data.id);
     }
