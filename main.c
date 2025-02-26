@@ -15,14 +15,14 @@
 // #include <limits.h> //! add my own limits with define
 
 //! TODO
-//! add real printf of usage of ping! printf("print usage info of pingu\n");
+// // add real printf of usage of ping! printf("print usage info of pingu\n");
 // // code panic funtion for check_argv
 //! code my own sqrt
 //! put all printfs possible into send_ping or print stats, no weird mix between main send_ping etc
 //! change t_ping_stats and s_ping to normal struct and merge them
 //! its 3 diff unique things, and seq goes ++ each time
     //! recvmsg needs to check if id == id, icmp_seq ==, echo_reply i sent
-//! panic_argv("ft_ping: only one IP address allowed\n", "");
+// // panic_argv("ft_ping: only one IP address allowed\n", "");
 // // use EXIT_FAILURE and EXIT_SUCCESS in exit
 // clean all, cut into smaller functions
 // // if (bytes_sent == 0 or it block what do i do, just pack_lost++ and continue, this can lead to an infinite loop
@@ -276,6 +276,9 @@ void send_ping(t_ping *ping_data) {
     // wait.tv_usec = 500000;
     // set_timeval(&interval, ping_data->interval);
 
+    //! its 3 diff unique things, and seq goes ++ each time
+    //! recvmsg needs to check if id == id, icmp_seq ==, echo_reply i sent
+
     //! while stop = 1 or if -c --> i < c or -w close when time is over
     while (stop && (ping_data->flags.count == 0 || counter < ping_data->flags.count)) {
         //! seq is wrong order for some reason its 01 00 instead of 00 01 bytes
@@ -391,52 +394,16 @@ void panic_argv(const char *format, const char *var)
     exit(EXIT_FAILURE);
 }
 
-double check_bonus_argv_double(int *i, int argc, char *argv[])
+double check_bonus_argv_double_new(char *str)
 {
-    if (*i + 1 < argc)
+    char *endptr;
+    double num = strtod(str, &endptr);
+    if (endptr == str || *endptr != '\0')
     {
-        char *endptr;
-        char *str = argv[*i + 1];
-        double num = strtod(str, &endptr);
-
-        if (endptr == str || *endptr != '\0')
-        {
-            fprintf(stderr, "ft_ping: invalid value (`%s' near `%s')\n", str, endptr);
-            exit(EXIT_FAILURE);
-        }
-        (*i)++;
-        return num;
+        fprintf(stderr, "ft_ping: invalid value (`%s' near `%s')\n", str, endptr);
+        exit(EXIT_FAILURE);
     }
-    // if (argv[*i][1] == '-')
-    // {
-    //     panic_argv("ft_ping: option '%s' requires an argument\n", argv[*i]);
-    // }
-    panic_argv("ft_ping: option requires an argument -- '%s'\n", (char[]){argv[*i][1], '\0'});
-    exit(EXIT_FAILURE);
-}
-
-int check_bonus_argv_int(int *i, int argc, char *argv[])
-{
-    if (*i + 1 < argc)
-    {
-        char *endptr;
-        char *str = argv[*i + 1];
-        int num = (int)strtol(str, &endptr, 10);
-
-        if (endptr == str || *endptr != '\0')
-        {
-            fprintf(stderr, "ft_ping: invalid value (`%s' near `%s')\n", str, endptr);
-            exit(EXIT_FAILURE);
-        }
-        (*i)++;
-        return num;
-    }
-    if (argv[*i][1] == '-')
-    {
-        panic_argv("ft_ping: option '%s' requires an argument\n", argv[*i]);
-    }
-    panic_argv("ft_ping: option requires an argument -- '%s'\n", (char[]){argv[*i][1], '\0'});
-    exit(EXIT_FAILURE);
+    return num;
 }
 
 int check_bonus_argv_int_new(char *str)
@@ -449,12 +416,6 @@ int check_bonus_argv_int_new(char *str)
         exit(EXIT_FAILURE);
     }
     return num;
-    // if (str[1] == '-')
-    // {
-    //     panic_argv("ft_ping: option '%s' requires an argument\n", str);
-    // }
-    // panic_argv("ft_ping: option requires an argument -- '%s'\n", (char[]){str[1], '\0'});
-    // exit(EXIT_FAILURE);
 }
 
 //! change return type etc
@@ -466,17 +427,36 @@ int check_bonus_argv_int_new(char *str)
     // int recv_timeout; // > 0
 void check_argv(t_ping *ping_data, int argc, char *argv[])
 {
-    //! -c10 -W1 -i1 this doesnt work...
     double interval = 0.0;
     int flag_val = 0;
     for (int i = 1; i < argc; i++)
     {
         if (argv[i][0] == '-')
         {
-            if (!strcmp(argv[i], "-?") || !strcmp(argv[i], "--help") || !strcmp(argv[i], "--usage"))
+            if (!strcmp(argv[i], "-?") || !strcmp(argv[i], "--help"))
             {
-                printf("print usage info of pingu\n");
-                exit(EXIT_FAILURE);
+                printf("Usage: ping [OPTION...] HOST ...\n");
+                printf("Send ICMP ECHO_REQUEST packets to network hosts.\n");
+                printf("--ttl=N                specify N as time-to-live\n");
+                printf("-c=N                   stop after sending NUMBER packets\n");
+                printf("-i=N                   wait NUMBER seconds between sending each packet\n");
+                printf("-v                     verbose output\n");
+                printf("-q                     quiet output\n");
+                printf("-?, --help             give this help list\n");
+                printf("--usage                give a short usage message\n");
+                exit(EXIT_SUCCESS);
+            }
+            else if (!strcmp(argv[i], "-V"))
+            {
+                printf("(Fixed your fucking) ping (GNU inetutils) 2.0\n");
+                printf("You're welcome :)\n");
+                printf("Written by Leo motherfucking G.\n");
+                exit(EXIT_SUCCESS);
+            }
+            else if (!strcmp(argv[i], "--usage"))
+            {
+                printf("Usage: ping [-vq?] [-c N] [-i N] [-W N] [--ttl=N] [--help] [--usage] HOST ...\n");
+                exit(EXIT_SUCCESS);
             }
             else if (!strcmp(argv[i], "-v"))
             {
@@ -488,25 +468,28 @@ void check_argv(t_ping *ping_data, int argc, char *argv[])
                 // remove print 64 bytes from 192.168.1.1: icmp_seq=0 ttl=2 time=4.867 ms
                 ping_data->flags.quiet = 1;
             }
-            else if (!strcmp(argv[i], "--ttl")) // && i + 1 < argc)
+            else if (!strcmp(argv[i], "--ttl"))
             {
                 // change IP_RECVTTL
-                flag_val = check_bonus_argv_int(&i, argc, argv);
-                if (flag_val <= 0 || flag_val >= 256)
+                if (i + 1 < argc)
                 {
-                    fprintf(stderr, "ft_ping: invalid --ttl value must be more than 0 and less than 256\n");
+                    flag_val = check_bonus_argv_int_new(argv[i + 1]);
+                    if (flag_val <= 0 || flag_val >= 256)
+                    {
+                        fprintf(stderr, "ft_ping: invalid value for option --ttl, must be more than 0 and less than 256\n");
+                        exit(EXIT_FAILURE);
+                    }
+                    ping_data->flags.ttl = flag_val;
+                    i++;
+                }
+                else
+                {
+                    panic_argv("ft_ping: option '%s' requires an argument\n", argv[i]);
                     exit(EXIT_FAILURE);
                 }
-                ping_data->flags.ttl = flag_val;
             }
             else if (strstr(argv[i], "-c"))
             {
-                //     "-z", // wrong
-                //     "-c",     // wrong
-                //     "-caaaa", // wrong
-                //     "-c 10",  // correct
-                //     "-c10",   // correct
-                //      "-c ", "10" // correct
                 // count till -c then exit
                 if (strlen(argv[i]) == 2)
                 {
@@ -514,43 +497,18 @@ void check_argv(t_ping *ping_data, int argc, char *argv[])
                     if (i + 1 < argc)
                     {
                         flag_val = check_bonus_argv_int_new(argv[i + 1]);
-                        // if (flag_val < 0)
-                        // {
-                        //     fprintf(stderr, "ft_ping: invalid -c value must be non-negative\n");
-                        //     exit(EXIT_FAILURE);
-                        // }
-                        // ping_data->flags.count = flag_val;
                         i++;
                     }
                     else
                     {
-                        // if (argv[i][1] == '-')
-                        // {
-                        //     panic_argv("ft_ping: option '%s' requires an argument\n", argv[i]);
-                        // }
                         panic_argv("ft_ping: option requires an argument -- '%s'\n", (char[]){argv[i][1], '\0'});
                         exit(EXIT_FAILURE);
                     }
-                    // count till -c then exit
-                    // flag_val = check_bonus_argv_int(&i, argc, argv);
-                    // if (flag_val < 0)
-                    // {
-                    //     fprintf(stderr, "ft_ping: invalid value must be non-negative\n");
-                    //     exit(EXIT_FAILURE);
-                    // }
-                    // ping_data->flags.count = flag_val;
                 }
                 else
                 {
                     char *str = argv[i] + 2;
                     flag_val = check_bonus_argv_int_new(str);
-                    // printf("%s %d\n", str, num);
-                    // if (flag_val < 0)
-                    // {
-                    //     fprintf(stderr, "ft_ping: invalid -c value must be non-negative\n");
-                    //     exit(EXIT_FAILURE);
-                    // }
-                    // ping_data->flags.count = flag_val;
                 }
                 if (flag_val < 0)
                 {
@@ -559,24 +517,60 @@ void check_argv(t_ping *ping_data, int argc, char *argv[])
                 }
                 ping_data->flags.count = flag_val;
             }
-            else if (!strcmp(argv[i], "-i"))
+            else if (strstr(argv[i], "-i"))
             {
                 // change usleep
-                interval = check_bonus_argv_double(&i, argc, argv);
+                if (strlen(argv[i]) == 2)
+                {
+
+                    if (i + 1 < argc)
+                    {
+                        interval = check_bonus_argv_double_new(argv[i + 1]);
+                        i++;
+                    }
+                    else
+                    {
+                        panic_argv("ft_ping: option requires an argument -- '%s'\n", (char[]){argv[i][1], '\0'});
+                        exit(EXIT_FAILURE);
+                    }
+                }
+                else
+                {
+                    char *str = argv[i] + 2;
+                    interval = check_bonus_argv_double_new(str);
+                }
                 if (interval < 0.2)
                 {
-                    fprintf(stderr, "ft_ping: invalid value must be more than 0.2\n");
+                    fprintf(stderr, "ft_ping: invalid value for option -i, must be at least 0.2\n");
                     exit(EXIT_FAILURE);
                 }
                 ping_data->flags.interval = interval;
             }
-            else if (!strcmp(argv[i], "-W"))
+            else if (strstr(argv[i], "-W"))
             {
                 // change SO_RCVTIMEO
-                flag_val = check_bonus_argv_int(&i, argc, argv);
-                if (flag_val < 0)
+                if (strlen(argv[i]) == 2)
                 {
-                    fprintf(stderr, "ft_ping: invalid value must be more than 0\n");
+
+                    if (i + 1 < argc)
+                    {
+                        flag_val = check_bonus_argv_int_new(argv[i + 1]);
+                        i++;
+                    }
+                    else
+                    {
+                        panic_argv("ft_ping: option requires an argument -- '%s'\n", (char[]){argv[i][1], '\0'});
+                        exit(EXIT_FAILURE);
+                    }
+                }
+                else
+                {
+                    char *str = argv[i] + 2;
+                    flag_val = check_bonus_argv_int_new(str);
+                }
+                if (flag_val <= 0)
+                {
+                    fprintf(stderr, "ft_ping: invalid value for option -W, must be more than 0\n");
                     exit(EXIT_FAILURE);
                 }
                 ping_data->flags.recv_timeout = flag_val;
@@ -591,7 +585,6 @@ void check_argv(t_ping *ping_data, int argc, char *argv[])
             }
         }
         //! else: if is ip add ip to struct, ip can be a whole number | 255.255.255.255 | domain.com else print wrong flag
-        //! for now if its any other data other than ip and my args its an error, normal ping ignores data after ip if its not -
         else
         {
             //! ping: missing host operand
@@ -601,6 +594,7 @@ void check_argv(t_ping *ping_data, int argc, char *argv[])
                 // printf("received ip: %s\n", ping_data->ip_argv); //! remove me
             }
             //! maybe remove idk...
+            // ! if two ip address return error
             else
             {
                 panic_argv("ft_ping: only one IP address allowed\n", "");
