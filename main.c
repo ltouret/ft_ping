@@ -22,6 +22,7 @@
 //! change t_ping_stats and s_ping to normal struct and merge them
 //! its 3 diff unique things, and seq goes ++ each time
     //! recvmsg needs to check if id == id, icmp_seq ==, echo_reply i sent
+//! panic_argv("ft_ping: only one IP address allowed\n", "");
 // // use EXIT_FAILURE and EXIT_SUCCESS in exit
 // clean all, cut into smaller functions
 // // if (bytes_sent == 0 or it block what do i do, just pack_lost++ and continue, this can lead to an infinite loop
@@ -406,10 +407,10 @@ double check_bonus_argv_double(int *i, int argc, char *argv[])
         (*i)++;
         return num;
     }
-    if (argv[*i][1] == '-')
-    {
-        panic_argv("ft_ping: option '%s' requires an argument\n", argv[*i]);
-    }
+    // if (argv[*i][1] == '-')
+    // {
+    //     panic_argv("ft_ping: option '%s' requires an argument\n", argv[*i]);
+    // }
     panic_argv("ft_ping: option requires an argument -- '%s'\n", (char[]){argv[*i][1], '\0'});
     exit(EXIT_FAILURE);
 }
@@ -436,6 +437,24 @@ int check_bonus_argv_int(int *i, int argc, char *argv[])
     }
     panic_argv("ft_ping: option requires an argument -- '%s'\n", (char[]){argv[*i][1], '\0'});
     exit(EXIT_FAILURE);
+}
+
+int check_bonus_argv_int_new(char *str)
+{
+    char *endptr;
+    int num = (int)strtol(str, &endptr, 10);
+    if (endptr == str || *endptr != '\0')
+    {
+        fprintf(stderr, "ft_ping: invalid value (`%s' near `%s')\n", str, endptr);
+        exit(EXIT_FAILURE);
+    }
+    return num;
+    // if (str[1] == '-')
+    // {
+    //     panic_argv("ft_ping: option '%s' requires an argument\n", str);
+    // }
+    // panic_argv("ft_ping: option requires an argument -- '%s'\n", (char[]){str[1], '\0'});
+    // exit(EXIT_FAILURE);
 }
 
 //! change return type etc
@@ -475,21 +494,70 @@ void check_argv(t_ping *ping_data, int argc, char *argv[])
                 flag_val = check_bonus_argv_int(&i, argc, argv);
                 if (flag_val <= 0 || flag_val >= 256)
                 {
-                    fprintf(stderr, "ft_ping: invalid value must be more than 0 and less than 256\n");
+                    fprintf(stderr, "ft_ping: invalid --ttl value must be more than 0 and less than 256\n");
                     exit(EXIT_FAILURE);
                 }
                 ping_data->flags.ttl = flag_val;
             }
-            else if (!strcmp(argv[i], "-c"))
+            else if (strstr(argv[i], "-c"))
             {
+                //     "-z", // wrong
+                //     "-c",     // wrong
+                //     "-caaaa", // wrong
+                //     "-c 10",  // correct
+                //     "-c10",   // correct
+                //      "-c ", "10" // correct
                 // count till -c then exit
-                flag_val = check_bonus_argv_int(&i, argc, argv);
+                if (strlen(argv[i]) == 2)
+                {
+
+                    if (i + 1 < argc)
+                    {
+                        flag_val = check_bonus_argv_int_new(argv[i + 1]);
+                        // if (flag_val < 0)
+                        // {
+                        //     fprintf(stderr, "ft_ping: invalid -c value must be non-negative\n");
+                        //     exit(EXIT_FAILURE);
+                        // }
+                        // ping_data->flags.count = flag_val;
+                        i++;
+                    }
+                    else
+                    {
+                        // if (argv[i][1] == '-')
+                        // {
+                        //     panic_argv("ft_ping: option '%s' requires an argument\n", argv[i]);
+                        // }
+                        panic_argv("ft_ping: option requires an argument -- '%s'\n", (char[]){argv[i][1], '\0'});
+                        exit(EXIT_FAILURE);
+                    }
+                    // count till -c then exit
+                    // flag_val = check_bonus_argv_int(&i, argc, argv);
+                    // if (flag_val < 0)
+                    // {
+                    //     fprintf(stderr, "ft_ping: invalid value must be non-negative\n");
+                    //     exit(EXIT_FAILURE);
+                    // }
+                    // ping_data->flags.count = flag_val;
+                }
+                else
+                {
+                    char *str = argv[i] + 2;
+                    flag_val = check_bonus_argv_int_new(str);
+                    // printf("%s %d\n", str, num);
+                    // if (flag_val < 0)
+                    // {
+                    //     fprintf(stderr, "ft_ping: invalid -c value must be non-negative\n");
+                    //     exit(EXIT_FAILURE);
+                    // }
+                    // ping_data->flags.count = flag_val;
+                }
                 if (flag_val < 0)
                 {
-                    fprintf(stderr, "ft_ping: invalid value must be non-negative\n");
+                    fprintf(stderr, "ft_ping: invalid value for option -c, must be non-negative\n");
                     exit(EXIT_FAILURE);
                 }
-                ping_data->flags.count = (uint8_t)flag_val;
+                ping_data->flags.count = flag_val;
             }
             else if (!strcmp(argv[i], "-i"))
             {
@@ -531,6 +599,11 @@ void check_argv(t_ping *ping_data, int argc, char *argv[])
             {
                 ping_data->ip_argv = argv[i];
                 // printf("received ip: %s\n", ping_data->ip_argv); //! remove me
+            }
+            //! maybe remove idk...
+            else
+            {
+                panic_argv("ft_ping: only one IP address allowed\n", "");
             }
         }
     }
@@ -600,7 +673,6 @@ int main(int argc, char *argv[])
     }
     ping_data.sockfd = sockfd;
 
-
     //! dns check
     struct hostent *host = gethostbyname(ping_data.ip_argv); // Resolve hostname
     if (host == NULL) {
@@ -624,39 +696,5 @@ int main(int argc, char *argv[])
     }
     printf("\n");
     // send_ping(&ping_data);
-
-    //! erase from here 
-
-    // char *str = "-c 10";
-    // char *str = "-c10";
-    // "-c" // wrong
-    // "-caaaa" // wrong
-    // "-c 10" // correct
-    // "-c10" // correct
-    // "-c" "10" // correct
-    const char *strs[] = {
-        "-z", // wrong
-        "-c",     // wrong
-        "-caaaa", // wrong
-        "-c 10",  // correct
-        "-c10",   // correct
-         "-c ", "10" // correct
-    };
-    for (size_t i = 0; i < 5; i++)
-    {
-        char *result = strstr(strs[i], "-c");
-        if (result != NULL) {
-            int position = result - strs[i];
-            int substringLength = strlen(strs[i]) - position;
-            printf("i %ld pos %d sub %d %s\n", i, position, substringLength, strs[i]);
-        }
-    }
-    //! to test case 6 - 7 later
-    // {
-    //     char *result = strstr(strs[i], "-c");
-    //     int position = result - strs[i];
-    //     int substringLength = strlen(strs[i]) - position;
-    //     printf("pos %d sub %d %s\n", position, substringLength, strs[i]);
-    // }
     return 0;
 }
