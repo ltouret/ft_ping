@@ -1,179 +1,6 @@
-#include <stdio.h>
-#include <stdlib.h>
-#include <unistd.h>
-#include <arpa/inet.h>
-#include <string.h>
-#include <netdb.h>
-#include <signal.h>
-#include <time.h>
-#include <sys/time.h>
-
-//! TODO
-// // add real printf of usage of ping! printf("print usage info of pingu\n");
-// // code panic funtion for check_argv
-// // code my own sqrt
-// //put all printfs possible into send_ping or print stats, no weird mix between main send_ping etc
-// // change t_ping_stats and s_ping to normal struct and merge them
-// // its 3 diff unique things, and seq goes ++ each time
-    // // recvmsg needs to check if id == id, icmp_seq ==, echo_reply i sent
-// // panic_argv("ft_ping: only one IP address allowed\n", "");
-// // use EXIT_FAILURE and EXIT_SUCCESS in exit
-//! clean all, cut into smaller functions
-// // if (bytes_sent == 0 or it block what do i do, just pack_lost++ and continue, this can lead to an infinite loop
-// // add control + c signal catch
-// // add argv parsing
-//    // add argv -? -v and bonus -ttl -c -i for intervals.
-//    // Maybe add -W (SO_RCVTIMEO) its the timeout time in recvmsg, -w is the max time ping before exiting, or if -c is done - no idea how to implement that
-//    // if -W 2 ping will wait 2 seconds if the packet doesnt arrive back before sending the next interval (-c or 1 second if no option)
-//    // recv from socket with timeout? //! for now if we dont receive the info it just stays locked there in the recv line -> ping waits 10 seconds then says packet lost? ineutils says it waits forever... need to check
-//    // maybe add -q? seems ez
-//    // maybe add -e? seems ez
-
-// // find a way to know if i need to do a dns lookup or not. add dns_lookup -> maybe parse if ip is 255.255.255.255 (char.char.char.char)
-//! find a way to simulate errors and try them with ./ping ping and ft_ping
-// // icmp->icmp_ttime = 631043; //! add real time here
-//! add header file
-    // // make struct with all the data, int sockfd, const char *dest, icmp(?), the argv and what else?
-    // // add icmp struct int the header to make it work with c99.
-    // // make my own typedef with icmp + padding char[36] -> with data? or use icmphdr thats 8 bytes bc i dont really use much of the 28 of icmp  
-    // // easter egg in data padding of 64 bytes?
-// // calculate time between sendto and recvfrom and print it
-// // retrieve ttl from ip packet, how??
-// // ping 3232235777 should work for now doesnt --> output -v PING 3232235777 (192.168.1.1): 56 data bytes (add the ip)
-// // for now if ping 127.0.0.1 does work i dont receive the same message i sent. check later
-//// uint16_t seq = 0; //? for ./ping work froms 0 check in real debian - local machine starts from 1...
-// // what do i do with sendto, does it block if wrong ip? if it does find a way for it to have a timeout and not block, same for recvmsg
-
-// // ! format of ping ineutils 2.0 -> only diff is id 0x81e7 = 33255
-// // print verbose -> 
-// // printf ("PING %s (%s): %zu data bytes",
-// //     if (options & OPT_VERBOSE)
-// //     printf (", id 0x%04x = %u", ping->ping_ident, ping->ping_ident);
-// //  missing the dns lookup in case of domain
-// // print after each ping in the correct format (check if -v format changes)
-// // add math of statistics --> 2 packets transmitted, 2 packets received, 0% packet loss - round-trip min/avg/max/stddev = 2.244/3.556/4.867/1.312 ms
-// // ./ping -v 3232235777
-// /*
-//     PING 3232235777 (192.168.1.1): 56 data bytes, id 0x81e7 = 33255
-//     64 bytes from 192.168.1.1: icmp_seq=0 ttl=255 time=4.263 ms
-//     64 bytes from 192.168.1.1: icmp_seq=1 ttl=0 time=8.486 ms
-//     ^C--- 3232235777 ping statistics ---
-//     2 packets transmitted, 2 packets received, 0% packet loss
-//     round-trip min/avg/max/stddev = 4.263/6.375/8.486/2.112 ms
-// */
-// // ./ping 3232235777
-// /*
-//     PING 3232235777 (192.168.1.1): 56 data bytes
-//     64 bytes from 192.168.1.1: icmp_seq=0 ttl=2 time=4.867 ms
-//     64 bytes from 192.168.1.1: icmp_seq=1 ttl=3 time=2.244 ms
-//     ^C--- 3232235777 ping statistics ---
-//     2 packets transmitted, 2 packets received, 0% packet loss
-//     round-trip min/avg/max/stddev = 2.244/3.556/4.867/1.312 ms
-// */
-// // ./ping -v 192.168.1.99 //! bad address -> stats no round-trip min/avg etc
-// /*
-//     PING 192.168.1.99 (192.168.1.99): 56 data bytes, id 0x857d = 34173
-//     ^C--- 192.168.1.99 ping statistics ---
-//     5 packets transmitted, 0 packets received, 100% packet loss
-// */
+#include "ping.h"
 
 uint8_t stop = 1;
-
-struct s_ping_stats
-{
-    long        sum;
-    long long   sum_sq;
-    long        min;
-    long        max;
-    long        packets_sent;
-    long        packets_lost;
-};
-
-struct s_argv_flags
-{
-    // flags
-    unsigned int verbose : 1; // 0 or 1
-    
-    // bonus flags
-    double interval; // > 0.2
-    uint8_t ttl; // 256 > ttl > 0
-    unsigned int count; // >= 0
-    unsigned int quiet : 1; // 0 or 1
-    unsigned int recv_timeout; // > 0
-};
-
-struct s_ping
-{
-    int sockfd;
-    uint16_t id;
-    char *ip_argv;
-    char ip_address[INET_ADDRSTRLEN];
-    struct sockaddr_in dest_addr;
-
-    // flags
-    struct s_argv_flags flags;
-
-    // stats
-    struct s_ping_stats stats;
-};
-
-#define ICMP_ECHOREPLY		0
-#define ICMP_DEST_UNREACH	3	/* Destination Unreachable	*/
-#define ICMP_REDIRECT		5	/* Redirect (change route)	*/
-#define ICMP_ECHO           8
-#define ICMP_TIME_EXCEEDED	11	/* Time Exceeded		*/
-#define ICMP_PARAMETERPROB	12	/* Parameter Problem		*/
-
-/* Codes for UNREACH. */
-#define ICMP_NET_UNREACH	0	/* Network Unreachable		*/
-#define ICMP_HOST_UNREACH	1	/* Host Unreachable		*/
-#define ICMP_PROT_UNREACH	2	/* Protocol Unreachable		*/
-#define ICMP_PORT_UNREACH	3	/* Port Unreachable		*/
-#define ICMP_FRAG_NEEDED	4	/* Fragmentation Needed/DF set	*/
-#define ICMP_SR_FAILED		5	/* Source Route failed		*/
-#define ICMP_NET_UNKNOWN	6
-#define ICMP_HOST_UNKNOWN	7
-#define ICMP_HOST_ISOLATED	8
-#define ICMP_NET_ANO		9
-#define ICMP_HOST_ANO		10
-#define ICMP_NET_UNR_TOS	11
-#define ICMP_HOST_UNR_TOS	12
-#define ICMP_PKT_FILTERED	13	/* Packet filtered */
-#define ICMP_PREC_VIOLATION	14	/* Precedence violation */
-#define ICMP_PREC_CUTOFF	15	/* Precedence cut off */
-#define NR_ICMP_UNREACH		15	/* instead of hardcoding immediate value */
-
-/* Codes for REDIRECT. */
-#define ICMP_REDIR_NET		0	/* Redirect Net			*/
-#define ICMP_REDIR_HOST		1	/* Redirect Host		*/
-#define ICMP_REDIR_NETTOS	2	/* Redirect Net for TOS		*/
-#define ICMP_REDIR_HOSTTOS	3	/* Redirect Host for TOS	*/
-
-/* Codes for TIME_EXCEEDED. */
-#define ICMP_EXC_TTL		0	/* TTL count exceeded		*/
-#define ICMP_EXC_FRAGTIME	1	/* Fragment Reass time exceeded	*/
-
-#define LONG_MAX    9223372036854775807
-#define INT_MAX     2147483647
-
-struct icmp
-{
-    // header 20 bytes
-    uint8_t     icmp_type;
-    uint8_t     icmp_code;
-    uint16_t    icmp_cksum; // padding
-    uint16_t    icmp_id;
-    uint16_t    icmp_seq;
-    uint32_t    icmp_otime;
-    uint32_t    icmp_rtime; // padding
-    uint32_t    icmp_ttime;
-
-    // padding 4 bytes
-    uint32_t    padding;
-
-    // data 40 bytes
-    uint8_t     data[40];
-};
 
 void update_stats(struct s_ping *ping_data, long elapsed_micros)
 {
@@ -200,7 +27,6 @@ void my_usleep(double seconds)
     select(0, NULL, NULL, NULL, &tval);
 }
 
-//? code this better!
 double square_root(double val)
 {
 	double ans = 1, sqr = 1, i = 1;
@@ -780,6 +606,7 @@ void init_ping(struct s_ping *ping_data, int argc, char *argv[])
 
 int main(int argc, char *argv[])
 {
+    // printf("name %d\n", ICMP_NET_UNREACH);
     struct s_ping ping_data = {0};
     set_signal_action();
     init_ping(&ping_data, argc, argv);
