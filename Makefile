@@ -12,7 +12,7 @@
 
 NAME = ft_ping
 
-SRCS = main.c
+SRCS = src/main.c src/utils.c src/error.c src/argv.c src/stats.c
 
 OBJS = ${SRCS:.c=.o}
 

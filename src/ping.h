@@ -11,7 +11,7 @@
 #include <time.h>
 #include <sys/time.h>
 
-uint8_t stop;
+extern uint8_t stop;
 
 struct s_ping_stats
 {
@@ -109,5 +109,19 @@ struct icmp
 
 #define LONG_MAX 9223372036854775807
 #define INT_MAX 2147483647
+
+void update_stats(struct s_ping *ping_data, long elapsed_micros);
+void my_usleep(double seconds);
+double square_root(double val);
+void print_stats(struct s_ping *ping_data);
+void print_icmp_error(uint8_t type, uint8_t code);
+void send_ping(struct s_ping *ping_data);
+void sigint_handler(int signal);
+void set_signal_action(void);
+void panic_argv(const char *format, const char *var);
+double check_bonus_argv_double(char *str);
+int check_bonus_argv_int(char *str);
+void check_argv(struct s_ping *ping_data, int argc, char *argv[]);
+void init_ping(struct s_ping *ping_data, int argc, char *argv[]);
 
 #endif
