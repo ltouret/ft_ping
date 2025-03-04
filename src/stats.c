@@ -1,4 +1,4 @@
-#include "ping.h"
+#include "ft_ping.h"
 
 void update_stats(struct s_ping *ping_data, long elapsed_micros)
 {

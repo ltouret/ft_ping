@@ -1,4 +1,4 @@
-#include "ping.h"
+#include "ft_ping.h"
 
 uint8_t stop = 0;
 

@@ -1,4 +1,4 @@
-#include "ping.h"
+#include "ft_ping.h"
 
 void print_icmp_error(u_int8_t type, u_int8_t code)
 {

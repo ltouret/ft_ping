@@ -1,4 +1,4 @@
-#include "ping.h"
+#include "ft_ping.h"
 
 void panic_argv(const char *format, const char *var)
 {

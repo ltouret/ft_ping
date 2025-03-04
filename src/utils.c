@@ -1,4 +1,4 @@
-#include "ping.h"
+#include "ft_ping.h"
 
 void sigint_handler(int signal)
 {

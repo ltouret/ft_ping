@@ -19,7 +19,7 @@ OBJS = ${SRCS:.c=.o}
 CC		= cc
 RM		= rm -f
 
-CFLAGS = -Wall -Wextra -Werror -std=c99
+CFLAGS = -Wall -Wextra -Werror -std=c99 -Iincludes
 
 .c.o:
 		${CC} ${CFLAGS} -c $< -o ${<:.c=.o}
