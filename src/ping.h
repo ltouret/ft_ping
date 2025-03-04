@@ -111,7 +111,7 @@ struct icmp
 #define INT_MAX 2147483647
 
 void update_stats(struct s_ping *ping_data, long elapsed_micros);
-void my_usleep(double seconds);
+void usleep(double seconds);
 double square_root(double val);
 void print_stats(struct s_ping *ping_data);
 void print_icmp_error(uint8_t type, uint8_t code);

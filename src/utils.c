@@ -4,7 +4,7 @@ void sigint_handler(int signal)
 {
     if (signal == SIGINT)
     {
-        stop = 0;
+        stop = 1;
     }
 }
 
@@ -13,7 +13,7 @@ void set_signal_action(void)
     signal(SIGINT, sigint_handler);
 }
 
-void my_usleep(double seconds)
+void usleep(double seconds)
 {
     struct timeval tval;
     tval.tv_sec = (int)seconds;

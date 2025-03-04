@@ -37,7 +37,4 @@ fclean:	clean
 
 re:		fclean all
 
-test:	all
-		./ft_ping 192.168.1.1
-
-.PHONY: all clean fclean re test
+.PHONY: all clean fclean re

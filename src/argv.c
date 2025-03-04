@@ -41,15 +41,23 @@ void check_argv(struct s_ping *ping_data, int argc, char *argv[])
         {
             if (!strcmp(argv[i], "-?") || !strcmp(argv[i], "--help"))
             {
-                printf("Usage: ping [OPTION...] HOST ...\n");
+                printf("Usage: ft_ping [OPTION...] HOST ...\n");
                 printf("Send ICMP ECHO_REQUEST packets to network hosts.\n");
-                printf("--ttl=N                specify N as time-to-live\n");
-                printf("-c=N                   stop after sending NUMBER packets\n");
-                printf("-i=N                   wait NUMBER seconds between sending each packet\n");
+                printf("--ttl N                specify N as time-to-live\n");
+                printf("-c N                   stop after sending N packets\n");
+                printf("-i N                   wait N seconds between sending each packet\n");
+                printf("-e N                   define identifier N for ping session\n");
+                printf("-W N                   wait N seconds for a response\n");
                 printf("-v                     verbose output\n");
                 printf("-q                     quiet output\n");
                 printf("-?, --help             give this help list\n");
                 printf("--usage                give a short usage message\n");
+                printf("-V                     print program version\n");
+                exit(EXIT_SUCCESS);
+            }
+            else if (!strcmp(argv[i], "--usage"))
+            {
+                printf("Usage: ft_ping [-vq?V] [-c N] [-i N] [-W N] [-e N] [--ttl N] [--help] [--usage] HOST ...\n");
                 exit(EXIT_SUCCESS);
             }
             else if (!strcmp(argv[i], "-V"))
@@ -57,11 +65,6 @@ void check_argv(struct s_ping *ping_data, int argc, char *argv[])
                 printf("(Fixed your fucking) ping (GNU inetutils) 2.0\n");
                 printf("You're welcome :)\n");
                 printf("Written by Leo motherfucking G.\n");
-                exit(EXIT_SUCCESS);
-            }
-            else if (!strcmp(argv[i], "--usage"))
-            {
-                printf("Usage: ping [-vq?] [-c N] [-i N] [-W N] [--ttl=N] [--help] [--usage] HOST ...\n");
                 exit(EXIT_SUCCESS);
             }
             else if (!strcmp(argv[i], "-v"))
@@ -121,7 +124,7 @@ void check_argv(struct s_ping *ping_data, int argc, char *argv[])
                 }
                 ping_data->flags.count = flag_val;
             }
-            // change my_usleep
+            // change usleep
             else if (strstr(argv[i], "-i"))
             {
                 if (strlen(argv[i]) == 2)

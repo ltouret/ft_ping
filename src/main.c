@@ -1,6 +1,6 @@
 #include "ping.h"
 
-uint8_t stop = 1;
+uint8_t stop = 0;
 
 void send_ping(struct s_ping *ping_data)
 {
@@ -27,13 +27,14 @@ void send_ping(struct s_ping *ping_data)
 
     char buffer[64] = {0};
     char control[64] = {0};
+    struct sockaddr srcAddress;
     struct iovec iov = {
         .iov_base = buffer,
         .iov_len = sizeof(buffer)
     };
     struct msghdr msg = {
-        .msg_name = NULL,
-        .msg_namelen = 0,
+        .msg_name = &srcAddress,
+        .msg_namelen = sizeof(srcAddress),
         .msg_iov = &iov,
         .msg_iovlen = 1,
         .msg_control = control,
@@ -44,11 +45,12 @@ void send_ping(struct s_ping *ping_data)
     uint16_t seq = 0;
     unsigned int counter = 0;
     struct timeval start, end;
+    char ip_received[INET_ADDRSTRLEN];
     struct s_ping_stats *stats = &ping_data->stats;
 
-    while (stop && (ping_data->flags.count == 0 || counter < ping_data->flags.count))
+    while (!stop && (ping_data->flags.count == 0 || counter < ping_data->flags.count))
     {
-        icmp.icmp_seq = htons(++seq);
+        icmp.icmp_seq = htons(seq);
 
         // add timestamp to ping
         gettimeofday(&start, NULL);
@@ -78,7 +80,7 @@ void send_ping(struct s_ping *ping_data)
             stats->packets_sent++;
             stats->packets_lost++;
             counter++;
-            my_usleep(ping_data->flags.interval);
+            usleep(ping_data->flags.interval);
             continue;
         }
 
@@ -90,8 +92,10 @@ void send_ping(struct s_ping *ping_data)
         }
 
         // retrieve ttl
-        for (struct cmsghdr *cmsg = CMSG_FIRSTHDR(&msg); cmsg != NULL; cmsg = CMSG_NXTHDR(&msg, cmsg)) {
-            if (cmsg->cmsg_level == IPPROTO_IP && cmsg->cmsg_type == IP_TTL) {
+        for (struct cmsghdr *cmsg = CMSG_FIRSTHDR(&msg); cmsg != NULL; cmsg = CMSG_NXTHDR(&msg, cmsg))
+        {
+            if (cmsg->cmsg_level == IPPROTO_IP && cmsg->cmsg_type == IP_TTL)
+            {
                 ttl = *(uint8_t *)CMSG_DATA(cmsg);
             }
         }
@@ -100,11 +104,13 @@ void send_ping(struct s_ping *ping_data)
         update_stats(ping_data, elapsed_micros);
         if (!ping_data->flags.quiet)
         {
-            printf("64 bytes from %s: icmp_seq=%d ttl=%u time=%ld.%03ld ms\n",
-                ping_data->ip_address, seq, ttl, elapsed_micros / 1000, elapsed_micros % 1000);
+            inet_ntop(AF_INET, &((struct sockaddr_in*)msg.msg_name)->sin_addr, ip_received, sizeof(ip_received));
+            printf("%ld bytes from %s: icmp_seq=%d ttl=%u time=%ld.%03ld ms\n", 
+                bytes_received, ip_received, seq, ttl, elapsed_micros / 1000, elapsed_micros % 1000);
         }
         counter++;
-        my_usleep(ping_data->flags.interval);
+        seq++;
+        usleep(ping_data->flags.interval);
     }
 }
 
