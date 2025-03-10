@@ -144,7 +144,7 @@ void init_ping(struct s_ping *ping_data, int argc, char *argv[])
         exit(EXIT_FAILURE);
     }
     struct timeval tv = {.tv_sec = ping_data->flags.recv_timeout};
-    if (setsockopt(ping_data->sockfd, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tv, sizeof(tv)) < 0)
+    if (setsockopt(ping_data->sockfd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv)) < 0)
     {
         fprintf(stderr, "ft_ping: Setting socket options of linger failed\n");
         exit(EXIT_FAILURE);
