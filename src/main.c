@@ -65,6 +65,7 @@ void send_ping(struct s_ping *ping_data)
             stats->packets_sent++;
             stats->packets_lost++;
             counter++;
+            usleep(ping_data->flags.interval);
             continue;
         }
 
